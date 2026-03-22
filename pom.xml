@@ -73,9 +73,6 @@
                 <artifactId>antlr4-maven-plugin</artifactId>
                 <version>${antlr.version}</version>
                 <configuration>
-                    <sourceDirectory>${project.basedir}/src/main/resources/antlr</sourceDirectory>
-                    <outputDirectory>${project.build.directory}/generated-sources/antlr4</outputDirectory>
-                    <packageName>com.example.shelldetector.parser.antlr</packageName>
                     <listener>true</listener>
                     <visitor>false</visitor>
                 </configuration>

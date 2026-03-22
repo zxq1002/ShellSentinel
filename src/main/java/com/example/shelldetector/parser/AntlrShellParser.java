@@ -114,7 +114,12 @@ public class AntlrShellParser implements ShellParser {
                 return false;
             }
 
-            // 数字（WORD 类型但内容全是数字）后接操作符不需要空格
+            // 重定向符后接文件名（WORD）不需要空格：>file, >>file
+            if (isOperatorToken(prevType) && currType == BashLexer.WORD) {
+                return false;
+            }
+
+            // 数字（WORD 类型但内容全是数字）后接操作符不需要空格：2>, 1>
             if (prevType == BashLexer.WORD && isAllDigits(prevText) && isOperatorToken(currType)) {
                 return false;
             }
@@ -130,10 +135,16 @@ public class AntlrShellParser implements ShellParser {
             return tokenType == BashLexer.REDIRECT_OUT
                     || tokenType == BashLexer.REDIRECT_APPEND
                     || tokenType == BashLexer.REDIRECT_IN
+                    || tokenType == BashLexer.REDIRECT_OUT_AND_ERR
+                    || tokenType == BashLexer.REDIRECT_APPEND_ALL
+                    || tokenType == BashLexer.REDIRECT_OUT_FD
+                    || tokenType == BashLexer.REDIRECT_IN_FD
                     || tokenType == BashLexer.AMPERSAND
                     || tokenType == BashLexer.PIPE
                     || tokenType == BashLexer.LPAREN
-                    || tokenType == BashLexer.RPAREN;
+                    || tokenType == BashLexer.RPAREN
+                    || tokenType == BashLexer.DOLLAR
+                    || tokenType == BashLexer.BACKTICK;
         }
 
         /**

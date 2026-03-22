@@ -1,10 +1,6 @@
 parser grammar BashParser;
 options { tokenVocab=BashLexer; }
 
-@header {
-package com.example.shelldetector.parser.antlr;
-}
-
 parse: commandList EOF;
 
 commandList: command (SEMICOLON command)* SEMICOLON?;
@@ -13,7 +9,13 @@ command: pipeline ( (ANDAND | OROR) pipeline )*;
 
 pipeline: simpleCommand (PIPE simpleCommand)*;
 
-simpleCommand: word+;
+// 核心改进：允许重定向和单词任意穿插
+simpleCommand: (element | redirection)+;
+
+element: word;
+
+// 重定向规则：支持可选的数字前缀（文件描述符）
+redirection: WORD? (REDIRECT_OUT | REDIRECT_APPEND | REDIRECT_IN | REDIRECT_OUT_AND_ERR | REDIRECT_APPEND_ALL | REDIRECT_OUT_FD | REDIRECT_IN_FD) word;
 
 // 支持命令替换和其他 shell 结构
 word: WORD
