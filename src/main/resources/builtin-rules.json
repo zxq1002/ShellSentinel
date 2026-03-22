@@ -110,6 +110,33 @@
       "enabled": true
     },
     {
+      "id": "builtin-reverse-shell",
+      "name": "reverse shell detection",
+      "type": "BLACKLIST",
+      "pattern": "/dev/(tcp|udp)/|nc\\s+.*\\d+\\.\\d+\\.\\d+\\.\\d+|telnet\\s+.*\\d+\\.\\d+\\.\\d+\\.\\d+|bash\\s+-i\\s+>&\\s*/dev/tcp/",
+      "riskLevel": "DANGER",
+      "description": "反弹 Shell 检测（/dev/tcp、nc、telnet等）",
+      "enabled": true
+    },
+    {
+      "id": "builtin-pipe-dangerous",
+      "name": "dangerous pipe usage",
+      "type": "BLACKLIST",
+      "pattern": "\\|.*\\b(nc|telnet|bash|sh|zsh|python|perl|ruby)\\b|\\|.*>/dev/(tcp|udp)/",
+      "riskLevel": "DANGER",
+      "description": "危险管道操作（管道后接 nc/telnet/shell 等）",
+      "enabled": true
+    },
+    {
+      "id": "builtin-suspicious-delimiter",
+      "name": "suspicious command delimiter",
+      "type": "BLACKLIST",
+      "pattern": "\\|.*\\|.*\\||;.*;.*;|&.*&.*&",
+      "riskLevel": "RISK",
+      "description": "可疑的多重重定向/分隔符",
+      "enabled": true
+    },
+    {
       "id": "builtin-ls",
       "name": "ls",
       "type": "WHITELIST",

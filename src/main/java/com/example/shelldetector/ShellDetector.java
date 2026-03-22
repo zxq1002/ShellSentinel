@@ -3,11 +3,14 @@ package com.example.shelldetector;
 import com.example.shelldetector.builtin.BuiltinRules;
 import com.example.shelldetector.config.DetectionConfig;
 import com.example.shelldetector.core.DetectionEngine;
+import com.example.shelldetector.core.RuleConflictChecker;
 import com.example.shelldetector.model.DetectionResult;
 import com.example.shelldetector.model.RiskLevel;
 import com.example.shelldetector.model.Rule;
 import com.example.shelldetector.persistence.RuleLoader;
 import com.example.shelldetector.persistence.RuleSaver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -178,8 +181,10 @@ public class ShellDetector {
      * Fluent Builder - 用于构建 ShellDetector 实例
      */
     public static class Builder {
+        private static final Logger logger = LoggerFactory.getLogger(Builder.class);
         private DetectionConfig config = DetectionConfig.builder().build();
         private List<Rule> rules = new ArrayList<>();
+        private boolean failOnRuleConflict = false;
 
         /**
          * 设置检测配置
@@ -207,7 +212,11 @@ public class ShellDetector {
             if (threshold == null) {
                 throw new IllegalArgumentException("Threshold cannot be null");
             }
-            this.config = DetectionConfig.builder().threshold(threshold).build();
+            // 保持现有配置，只修改 threshold 属性
+            this.config = DetectionConfig.builder()
+                    .threshold(threshold)
+                    .failOnParseError(this.config.isFailOnParseError())
+                    .build();
             return this;
         }
 
@@ -280,11 +289,42 @@ public class ShellDetector {
         }
 
         /**
+         * 设置规则冲突时是否失败
+         *
+         * @param failOnConflict true 表示规则冲突时抛出异常，false 表示仅记录警告
+         * @return Builder 实例
+         */
+        public Builder failOnRuleConflict(boolean failOnConflict) {
+            this.failOnRuleConflict = failOnConflict;
+            return this;
+        }
+
+        /**
          * 构建 ShellDetector 实例
          *
          * @return ShellDetector 实例
+         * @throws IllegalStateException 如果 failOnRuleConflict=true 且存在规则冲突
          */
         public ShellDetector build() {
+            // 检测规则冲突
+            RuleConflictChecker conflictChecker = new RuleConflictChecker();
+            List<RuleConflictChecker.Conflict> conflicts = conflictChecker.checkConflicts(rules);
+
+            if (!conflicts.isEmpty()) {
+                StringBuilder message = new StringBuilder();
+                message.append("Found ").append(conflicts.size()).append(" rule conflict(s):\n");
+                for (RuleConflictChecker.Conflict conflict : conflicts) {
+                    message.append("  - ").append(conflict).append("\n");
+                }
+                String conflictMessage = message.toString();
+
+                if (failOnRuleConflict) {
+                    throw new IllegalStateException(conflictMessage);
+                } else {
+                    logger.warn(conflictMessage);
+                }
+            }
+
             return new ShellDetector(this);
         }
     }

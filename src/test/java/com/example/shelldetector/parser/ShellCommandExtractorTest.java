@@ -185,9 +185,66 @@ class ShellCommandExtractorTest {
 
     @Test
     void testExtractCommandsWithQuotedStrings() {
-        // 注意：当前实现不处理引号内的分隔符，这是已知的限制
+        // 单引号内的分隔符不应该被分割
         List<String> result = extractor.extractCommands("echo 'hello; world'");
-        // 当前实现会分割成 ["echo 'hello", "world'"]
+        assertEquals(1, result.size());
+        assertEquals("echo 'hello; world'", result.get(0));
+    }
+
+    @Test
+    void testExtractCommandsWithDoubleQuotedStrings() {
+        // 双引号内的分隔符不应该被分割
+        List<String> result = extractor.extractCommands("echo \"hello; world\"");
+        assertEquals(1, result.size());
+        assertEquals("echo \"hello; world\"", result.get(0));
+    }
+
+    @Test
+    void testExtractCommandsWithMixedQuotes() {
+        // 混合引号的情况
+        List<String> result = extractor.extractCommands("echo 'hello; world'; echo \"another | command\"");
         assertEquals(2, result.size());
+        assertEquals("echo 'hello; world'", result.get(0));
+        assertEquals("echo \"another | command\"", result.get(1));
+    }
+
+    @Test
+    void testExtractCommandsWithEscapedDelimiter() {
+        // 转义的分隔符不应该被分割
+        List<String> result = extractor.extractCommands("echo \\; rm -rf /");
+        assertEquals(1, result.size());
+        assertEquals("echo \\; rm -rf /", result.get(0));
+    }
+
+    @Test
+    void testExtractCommandsWithEscapedInQuotes() {
+        // 引号内的转义字符处理
+        List<String> result = extractor.extractCommands("echo \"hello \\\" world\"");
+        assertEquals(1, result.size());
+        assertEquals("echo \"hello \\\" world\"", result.get(0));
+    }
+
+    @Test
+    void testExtractCommandsWithSingleQuoteInsideDoubleQuote() {
+        // 双引号内的单引号应该被保留
+        List<String> result = extractor.extractCommands("echo \"it's a test\"");
+        assertEquals(1, result.size());
+        assertEquals("echo \"it's a test\"", result.get(0));
+    }
+
+    @Test
+    void testExtractCommandsWithDoubleQuoteInsideSingleQuote() {
+        // 单引号内的双引号应该被保留
+        List<String> result = extractor.extractCommands("echo 'say \"hello\"'");
+        assertEquals(1, result.size());
+        assertEquals("echo 'say \"hello\"'", result.get(0));
+    }
+
+    @Test
+    void testExtractCommandsWithRealisticMaliciousExample() {
+        // Gemini Review 中提到的恶意示例：引号内包含 rm 命令
+        List<String> result = extractor.extractCommands("echo \"Hello; rm -rf /\"");
+        assertEquals(1, result.size());
+        assertEquals("echo \"Hello; rm -rf /\"", result.get(0));
     }
 }
