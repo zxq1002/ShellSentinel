@@ -1,5 +1,8 @@
 package com.example.shelldetector.model;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 风险等级枚举 - 定义三个风险级别
  * <p>
@@ -19,6 +22,11 @@ public enum RiskLevel {
     RISK(1, "风险"),
     /** 高危 - 危险操作 */
     DANGER(2, "高危");
+
+    private static final Logger logger = LoggerFactory.getLogger(RiskLevel.class);
+
+    /** 默认风险等级，当解析失败时使用 */
+    private static final RiskLevel DEFAULT_LEVEL = RISK;
 
     /** 风险等级数值，用于比较 */
     private final int level;
@@ -65,5 +73,39 @@ public enum RiskLevel {
      */
     public boolean isHigherOrEqualTo(RiskLevel other) {
         return this.level >= other.level;
+    }
+
+    /**
+     * 健壮的枚举解析方法 - 不区分大小写，支持模糊匹配，解析失败时返回默认值
+     *
+     * @param value 要解析的字符串
+     * @return 解析后的 RiskLevel，解析失败返回 DEFAULT_LEVEL (RISK)
+     */
+    public static RiskLevel safeValueOf(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            logger.warn("RiskLevel value is null or empty, using default: {}", DEFAULT_LEVEL);
+            return DEFAULT_LEVEL;
+        }
+
+        String normalized = value.trim().toUpperCase();
+
+        // 精确匹配
+        for (RiskLevel level : values()) {
+            if (level.name().equals(normalized)) {
+                return level;
+            }
+        }
+
+        // 模糊匹配（前缀匹配）
+        for (RiskLevel level : values()) {
+            if (level.name().startsWith(normalized)) {
+                logger.warn("RiskLevel '{}' fuzzy matched to '{}'", value, level);
+                return level;
+            }
+        }
+
+        // 解析失败，返回默认值
+        logger.warn("Failed to parse RiskLevel '{}', using default: {}", value, DEFAULT_LEVEL);
+        return DEFAULT_LEVEL;
     }
 }

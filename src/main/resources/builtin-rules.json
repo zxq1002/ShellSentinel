@@ -5,7 +5,7 @@
       "id": "builtin-rm-rf-root",
       "name": "rm -rf root",
       "type": "BLACKLIST",
-      "pattern": "rm\\s+.*-rf.*\\s+/",
+      "pattern": "\\brm\\s+.*-rf.*\\s+/",
       "riskLevel": "DANGER",
       "description": "递归删除根目录",
       "enabled": true
@@ -14,7 +14,7 @@
       "id": "builtin-mkfs",
       "name": "mkfs",
       "type": "BLACKLIST",
-      "pattern": "mkfs\\..*",
+      "pattern": "\\bmkfs\\..*",
       "riskLevel": "DANGER",
       "description": "格式化文件系统",
       "enabled": true
@@ -23,7 +23,7 @@
       "id": "builtin-dd",
       "name": "dd dangerous",
       "type": "BLACKLIST",
-      "pattern": "dd.*of=/dev/",
+      "pattern": "\\bdd.*of=/dev/",
       "riskLevel": "DANGER",
       "description": "dd写入设备",
       "enabled": true
@@ -32,7 +32,7 @@
       "id": "builtin-reboot",
       "name": "reboot",
       "type": "BLACKLIST",
-      "pattern": "reboot|shutdown|init\\s+0|init\\s+6|systemctl.*poweroff|systemctl.*reboot|halt|poweroff",
+      "pattern": "\\breboot\\b|\\bshutdown\\b|\\binit\\s+0\\b|\\binit\\s+6\\b|\\bsystemctl.*poweroff|\\bsystemctl.*reboot|\\bhalt\\b|\\bpoweroff\\b",
       "riskLevel": "DANGER",
       "description": "系统重启/关机",
       "enabled": true
@@ -41,7 +41,7 @@
       "id": "builtin-rm-rf",
       "name": "rm -rf",
       "type": "BLACKLIST",
-      "pattern": "rm\\s+.*-rf",
+      "pattern": "\\brm\\s+.*-rf",
       "riskLevel": "RISK",
       "description": "递归删除",
       "enabled": true
@@ -50,7 +50,7 @@
       "id": "builtin-cp-mv",
       "name": "cp/mv",
       "type": "BLACKLIST",
-      "pattern": "cp\\s+-f|mv\\s+",
+      "pattern": "\\bcp\\s+-f|\\bmv\\s+",
       "riskLevel": "RISK",
       "description": "复制/移动文件",
       "enabled": true
@@ -59,7 +59,7 @@
       "id": "builtin-touch-mkdir",
       "name": "touch/mkdir",
       "type": "BLACKLIST",
-      "pattern": "touch\\s+|mkdir\\s+-p",
+      "pattern": "\\btouch\\s+|\\bmkdir\\s+-p",
       "riskLevel": "RISK",
       "description": "创建文件/目录",
       "enabled": true
@@ -68,7 +68,7 @@
       "id": "builtin-sed-awk-perl",
       "name": "sed/awk/perl in-place",
       "type": "BLACKLIST",
-      "pattern": "sed\\s+-i|awk\\s+-i.*inplace|perl\\s+-i",
+      "pattern": "\\bsed\\s+-i|\\bawk\\s+-i.*inplace|\\bperl\\s+-i",
       "riskLevel": "RISK",
       "description": "原地修改文件",
       "enabled": true
@@ -77,7 +77,7 @@
       "id": "builtin-chmod",
       "name": "chmod dangerous",
       "type": "BLACKLIST",
-      "pattern": "chmod\\s+777|chmod\\s+-R",
+      "pattern": "\\bchmod\\s+777|\\bchmod\\s+-R",
       "riskLevel": "RISK",
       "description": "危险权限修改",
       "enabled": true
@@ -86,7 +86,7 @@
       "id": "builtin-chown",
       "name": "chown/chgrp",
       "type": "BLACKLIST",
-      "pattern": "chown\\s+-R|chgrp\\s+-R",
+      "pattern": "\\bchown\\s+-R|\\bchgrp\\s+-R",
       "riskLevel": "RISK",
       "description": "递归修改所有者",
       "enabled": true
@@ -95,7 +95,7 @@
       "id": "builtin-kill",
       "name": "kill -9",
       "type": "BLACKLIST",
-      "pattern": "kill\\s+-9|pkill\\s+-9|killall\\s+-9",
+      "pattern": "\\bkill\\s+-9|\\bpkill\\s+-9|\\bkillall\\s+-9",
       "riskLevel": "RISK",
       "description": "强制终止进程",
       "enabled": true
@@ -113,7 +113,7 @@
       "id": "builtin-reverse-shell",
       "name": "reverse shell detection",
       "type": "BLACKLIST",
-      "pattern": "/dev/(tcp|udp)/|nc\\s+.*\\d+\\.\\d+\\.\\d+\\.\\d+|telnet\\s+.*\\d+\\.\\d+\\.\\d+\\.\\d+|bash\\s+-i\\s+>&\\s*/dev/tcp/",
+      "pattern": "/dev/(tcp|udp)/|\\bnc\\s+.*\\d+\\.\\d+\\.\\d+\\.\\d+|\\btelnet\\s+.*\\d+\\.\\d+\\.\\d+\\.\\d+|\\bbash\\s+-i\\s+>&\\s*/dev/tcp/",
       "riskLevel": "DANGER",
       "description": "反弹 Shell 检测（/dev/tcp、nc、telnet等）",
       "enabled": true

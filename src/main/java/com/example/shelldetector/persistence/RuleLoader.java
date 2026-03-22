@@ -68,7 +68,7 @@ public class RuleLoader {
 
                 String riskStr = (String) rm.get("riskLevel");
                 if (riskStr != null) {
-                    builder.riskLevel(com.example.shelldetector.model.RiskLevel.valueOf(riskStr));
+                    builder.riskLevel(com.example.shelldetector.model.RiskLevel.safeValueOf(riskStr));
                 }
 
                 rules.add(builder.build());

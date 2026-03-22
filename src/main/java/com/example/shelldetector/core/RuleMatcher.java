@@ -153,8 +153,8 @@ public class RuleMatcher {
         if (pattern == null) {
             return false;
         }
-        // 只检查字面量的 $ 和 `，因为 ( 和 ) 在正则中很常见
-        // 如果规则确实要允许子 Shell，应该在 pattern 中明确包含 $ 或 `
+        // 检查字面量的 $ 和 `，这是明确的子 Shell 指示符
+        // ( 和 ) 在正则中太常见了（用于分组），所以只有当它们与 $ 或 ` 一起出现时才认为是子 Shell
         return pattern.contains("$") || pattern.contains("`");
     }
 
