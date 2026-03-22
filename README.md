@@ -16,6 +16,7 @@ Linux Shell 高危指令检测 Java 类库，供其他系统集成使用。
 ```java
 import com.example.shelldetector.ShellDetector;
 import com.example.shelldetector.model.DetectionResult;
+import com.example.shelldetector.parser.ParserType;
 
 // 使用默认配置和 22 条内置规则（默认 SIMPLE 解析器）
 ShellDetector detector = ShellDetector.createDefault();
@@ -32,7 +33,8 @@ if (!result.isPassed()) {
 ShellDetector detector = ShellDetector.builder()
     .withDefaultRules()
     .withThreshold(RiskLevel.DANGER)  // 只拦截高危
-    .failOnParseError(false)          // 解析失败时拦截而不抛异常 (默认 true)
+    .withParserType(ParserType.ANTLR) // 使用 ANTLR 解析器（默认 SIMPLE）
+    .failOnParseError(false)          // 解析失败时拦截命令 (默认 true=抛异常)
     .failOnRuleConflict(true)         // 规则冲突时直接中断构建
     .build();
 ```
@@ -45,9 +47,24 @@ ShellDetector detector = ShellDetector.builder()
 | **子 Shell 解析** | ❌ 仅作为字符串匹配 | ✅ 递归剥离 `$()` 并独立扫描内容 |
 | **故障处理** | 状态机容错 | **Fail-Safe** (语法错误即拦截) |
 
+也可以直接构建 `DetectionConfig` 进行细粒度配置：
+
+```java
+DetectionConfig config = DetectionConfig.builder()
+    .threshold(RiskLevel.RISK)
+    .parserType(ParserType.ANTLR)
+    .failOnParseError(true)
+    .build();
+
+ShellDetector detector = ShellDetector.builder()
+    .withConfig(config)
+    .withDefaultRules()
+    .build();
+```
+
 ---
 
-## 内置规则 (v1.2)
+## 内置规则 (v1.1)
 
 目前内置 **22** 条高危检测规则，涵盖以下领域：
 
@@ -68,7 +85,7 @@ ShellDetector detector = ShellDetector.builder()
 - **builtin-file-write**: 敏感路径重定向写操作。
 
 ### 4. 基础查询白名单 (SAFE)
-- 包含 `ls`, `cat`, `echo`, `ps`, `top`, `grep`, `find` 等 8 类安全指令的受限匹配。
+- 包含 `ls`, `cat`, `echo`, `ps`, `top`, `grep`, `find`, `pwd`, `whoami` 等安全指令的受限匹配（共 7 条白名单规则）。
 
 ---
 
