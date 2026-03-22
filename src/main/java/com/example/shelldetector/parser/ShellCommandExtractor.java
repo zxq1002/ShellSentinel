@@ -88,6 +88,15 @@ public class ShellCommandExtractor {
 
                 // 检查是否是命令分隔符，且不在任何引号内
                 if ((c == ';' || c == '|' || c == '&') && !inSingleQuote && !inDoubleQuote) {
+                    // 特殊处理：& 在 > 后面时（如 2>&1），不是命令分隔符
+                    if (c == '&' && i > 0) {
+                        char prevChar = shellCommand.charAt(i - 1);
+                        // 如果前一个字符是 >，则这是重定向的一部分（如 2>&1），不是分隔符
+                        if (prevChar == '>') {
+                            currentCommand.append(c);
+                            continue;
+                        }
+                    }
                     // 遇到分隔符，完成当前命令
                     addCommandIfNotEmpty(commands, currentCommand);
                     currentCommand.setLength(0);

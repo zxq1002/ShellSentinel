@@ -28,6 +28,7 @@ class RuleTest {
     @Test
     void testPatternMatching() {
         Rule rule = Rule.builder()
+                .id("test-pattern")
                 .pattern("rm\\s+-rf")
                 .build();
 
@@ -38,6 +39,7 @@ class RuleTest {
     @Test
     void testDisabledRuleDoesNotMatch() {
         Rule rule = Rule.builder()
+                .id("test-disabled")
                 .pattern("rm\\s+-rf")
                 .enabled(false)
                 .build();

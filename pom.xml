@@ -75,7 +75,7 @@
                 <executions>
                     <execution>
                         <goals>
-                            <goal>generate</goal>
+                            <goal>antlr4</goal>
                         </goals>
                         <configuration>
                             <sourceDirectory>src/main/resources/antlr</sourceDirectory>

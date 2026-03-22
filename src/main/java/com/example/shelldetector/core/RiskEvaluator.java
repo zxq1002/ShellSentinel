@@ -40,6 +40,7 @@ public class RiskEvaluator {
      * 判断是否应该拦截命令
      * <p>
      * 当风险等级大于或等于阈值时，应该拦截命令。
+     * 特例：SAFE 级别即使等于 SAFE 阈值也不拦截，因为 SAFE 表示完全安全。
      * </p>
      *
      * @param riskLevel 评估出的风险等级
@@ -48,6 +49,10 @@ public class RiskEvaluator {
      */
     public boolean shouldBlock(RiskLevel riskLevel, RiskLevel threshold) {
         if (riskLevel == null || threshold == null) {
+            return false;
+        }
+        // 特例：SAFE 级别永远不拦截
+        if (riskLevel == RiskLevel.SAFE) {
             return false;
         }
         return riskLevel.isHigherOrEqualTo(threshold);
