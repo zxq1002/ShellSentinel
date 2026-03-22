@@ -1,4 +1,4 @@
-# Shell 高危指令检测类库
+# ShellSentinel
 
 Linux Shell 高危指令检测 Java 类库，供其他系统集成使用。
 
