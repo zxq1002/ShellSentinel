@@ -9,7 +9,9 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 基于 ANTLR 的 Shell 解析器实现
@@ -53,43 +55,63 @@ public class AntlrShellParser implements ShellParser {
     /**
      * ANTLR 解析监听器，用于从 AST 中提取命令
      * <p>
-     * 改进点：智能空格处理，避免 2>&1 变成 2 > & 1
+     * 设计说明：
+     * <ol>
+     *     <li><b>子命令优先提取</b>：对于 `echo $(rm -rf /)`，会同时提取 "rm -rf /" 和 "echo $()"
+     *         <ul>
+     *             <li>核心目标：确保危险命令 "rm -rf /" 一定被提取</li>
+     *             <li>次要考虑：父命令可能不完整（仅显示 "echo $()"），但不影响安全检测</li>
+     *             <li>双重保险：DetectionEngine 会对原始整串再做一次黑名单扫描</li>
+     *         </ul>
+     *     </li>
+     *     <li><b>自动去重</b>：使用 LinkedHashSet 去除重复命令</li>
+     *     <li><b>递归保护</b>：限制最大嵌套深度 50，防止 StackOverflowError</li>
+     * </ol>
      * </p>
      */
     private static class CommandExtractorListener extends BashParserBaseListener {
 
+        private static final int MAX_RECURSION_DEPTH = 50;
+
         private final List<String> commands = new ArrayList<>();
-        private final StringBuilder currentCommand = new StringBuilder();
-        private boolean inSimpleCommand = false;
+        private final java.util.Stack<StringBuilder> commandStack = new java.util.Stack<>();
+        private int recursionDepth = 0;
         private int lastTokenType = -1;
         private String lastTokenText = "";
 
         @Override
         public void enterSimpleCommand(BashParser.SimpleCommandContext ctx) {
-            inSimpleCommand = true;
-            currentCommand.setLength(0);
+            if (recursionDepth >= MAX_RECURSION_DEPTH) {
+                throw new ShellParseException("Recursion depth limit exceeded: " + MAX_RECURSION_DEPTH);
+            }
+            recursionDepth++;
+            commandStack.push(new StringBuilder());
             lastTokenType = -1;
             lastTokenText = "";
         }
 
         @Override
         public void exitSimpleCommand(BashParser.SimpleCommandContext ctx) {
-            inSimpleCommand = false;
-            String cmd = currentCommand.toString().trim();
+            recursionDepth--;
+            StringBuilder current = commandStack.pop();
+            String cmd = current.toString().trim();
             if (!cmd.isEmpty()) {
                 commands.add(cmd);
             }
-            currentCommand.setLength(0);
+            // 注意：不将子命令追加到父级命令中，避免重复提取
+            // 每个 simpleCommand 都会独立添加到 commands 列表
         }
 
         @Override
         public void visitTerminal(org.antlr.v4.runtime.tree.TerminalNode node) {
-            if (!inSimpleCommand) {
+            if (commandStack.isEmpty()) {
                 return;
             }
 
             int tokenType = node.getSymbol().getType();
             String text = node.getText();
+
+            StringBuilder currentCommand = commandStack.peek();
 
             // 智能判断是否需要添加空格
             if (currentCommand.length() > 0 && needsSpace(lastTokenType, lastTokenText, tokenType, text)) {
@@ -109,18 +131,32 @@ public class AntlrShellParser implements ShellParser {
                 return false;
             }
 
-            // 操作符类 token 之间不需要空格：2>&1, >>, >&, 1>/dev/null
+            // 操作符类 token 之间不需要空格：2>&1, >>, >&, ${, $(, ))
             if (isOperatorToken(prevType) && isOperatorToken(currType)) {
                 return false;
             }
 
-            // 重定向符后接文件名（WORD）不需要空格：>file, >>file
-            if (isOperatorToken(prevType) && currType == BashLexer.WORD) {
+            // 特殊处理变量扩张和子 shell：${VAR}, $(CMD)
+            // 1. DOLLAR 后面接任何操作符或单词都不需要空格
+            if (prevType == BashLexer.DOLLAR) {
+                return false;
+            }
+            // 2. 左括号/左花括号后面不需要空格
+            if (prevType == BashLexer.LPAREN || prevType == BashLexer.LBRACE) {
+                return false;
+            }
+            // 3. 右括号/右花括号前面不需要空格
+            if (currType == BashLexer.RPAREN || currType == BashLexer.RBRACE) {
                 return false;
             }
 
-            // 数字（WORD 类型但内容全是数字）后接操作符不需要空格：2>, 1>
-            if (prevType == BashLexer.WORD && isAllDigits(prevText) && isOperatorToken(currType)) {
+            // 只有重定向符后接文件名（WORD）不需要空格：>file, >>file
+            if (isRedirectionToken(prevType) && currType == BashLexer.WORD) {
+                return false;
+            }
+
+            // 数字（WORD 类型但内容全是数字）后接重定向操作符不需要空格：2>, 1>
+            if (prevType == BashLexer.WORD && isAllDigits(prevText) && isRedirectionToken(currType)) {
                 return false;
             }
 
@@ -129,20 +165,29 @@ public class AntlrShellParser implements ShellParser {
         }
 
         /**
-         * 判断是否为操作符类 token
+         * 判断是否为重定向操作符
          */
-        private boolean isOperatorToken(int tokenType) {
+        private boolean isRedirectionToken(int tokenType) {
             return tokenType == BashLexer.REDIRECT_OUT
                     || tokenType == BashLexer.REDIRECT_APPEND
                     || tokenType == BashLexer.REDIRECT_IN
                     || tokenType == BashLexer.REDIRECT_OUT_AND_ERR
                     || tokenType == BashLexer.REDIRECT_APPEND_ALL
                     || tokenType == BashLexer.REDIRECT_OUT_FD
-                    || tokenType == BashLexer.REDIRECT_IN_FD
+                    || tokenType == BashLexer.REDIRECT_IN_FD;
+        }
+
+        /**
+         * 判断是否为操作符类 token
+         */
+        private boolean isOperatorToken(int tokenType) {
+            return isRedirectionToken(tokenType)
                     || tokenType == BashLexer.AMPERSAND
                     || tokenType == BashLexer.PIPE
                     || tokenType == BashLexer.LPAREN
                     || tokenType == BashLexer.RPAREN
+                    || tokenType == BashLexer.LBRACE
+                    || tokenType == BashLexer.RBRACE
                     || tokenType == BashLexer.DOLLAR
                     || tokenType == BashLexer.BACKTICK;
         }
@@ -163,7 +208,9 @@ public class AntlrShellParser implements ShellParser {
         }
 
         List<String> getCommands() {
-            return new ArrayList<>(commands);
+            // 使用 LinkedHashSet 去重，保持顺序
+            Set<String> uniqueCommands = new LinkedHashSet<>(commands);
+            return new ArrayList<>(uniqueCommands);
         }
     }
 

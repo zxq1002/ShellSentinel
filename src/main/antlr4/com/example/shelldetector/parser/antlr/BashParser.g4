@@ -3,7 +3,7 @@ options { tokenVocab=BashLexer; }
 
 parse: commandList EOF;
 
-commandList: command (SEMICOLON command)* SEMICOLON?;
+commandList: command ( (SEMICOLON | NEWLINE) command )* (SEMICOLON | NEWLINE)?;
 
 command: pipeline ( (ANDAND | OROR) pipeline )*;
 
@@ -18,7 +18,13 @@ element: word;
 redirection: WORD? (REDIRECT_OUT | REDIRECT_APPEND | REDIRECT_IN | REDIRECT_OUT_AND_ERR | REDIRECT_APPEND_ALL | REDIRECT_OUT_FD | REDIRECT_IN_FD) word;
 
 // 支持命令替换和其他 shell 结构
-word: WORD
-    | DOLLAR LPAREN commandList RPAREN
-    | BACKTICK commandList BACKTICK
+word: (WORD | STRING_SINGLE | STRING_DOUBLE)
+    | variableExpansion
+    | subshell
     ;
+
+subshell: DOLLAR LPAREN commandList RPAREN
+        | BACKTICK commandList BACKTICK
+        ;
+
+variableExpansion: DOLLAR (WORD | LBRACE WORD RBRACE);
