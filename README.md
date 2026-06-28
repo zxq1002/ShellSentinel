@@ -183,6 +183,26 @@ CommandGate gate = CommandGate.builder()
 
 > ⚠️ **残余风险（务必落实）**：路径匹配是**词法**的，只保证"文件在受信目录、文件名合规"，**不保证文件内容是镜像原版**。在脚本目录可写的环境下，能写入 `/home/example/` 的攻击者可投放 `validate-evil.sh` 并执行。由于无法将该目录单独只读挂载，**必须用文件系统权限保证脚本目录不可被 exec 用户写入**（如目录归 root、容器以非 root 运行），这是替代只读挂载的信任锚点。同样需防软链替换。
 
+### 混沌注入命令（可选，默认关闭）
+
+故障注入命令（`tc`/`stress-ng`/`kill` 等）本质危险，**不能按命令名放行**（否则攻击者得到整个工具）。因此单独提供「整条命令白名单」，只放行**预先登记的具体命令**，两种粒度：
+
+```properties
+# 精确整行：运行时规范化后逐 token 完全一致才放行（最严格）
+gate.exact.commands=stress-ng --cpu 4 --timeout 60s; kill -STOP 12345
+
+# 模板：结构钉死，仅类型占位符可变（参数需变时用）
+gate.command.templates=tc qdisc add dev eth0 root netem delay {int:0..10000}ms; \
+  stress-ng --cpu {int:1..16} --timeout {int:1..300}s; kill -{enum:STOP|CONT|TERM} {int}
+```
+
+- 多条以 **`;`** 分隔（`;` 在网关内本被禁，作分隔符安全）。
+- 占位符：`{int}`、`{int:MIN..MAX}`（闭区间）、`{enum:A|B|C}`（固定取值之一）；其余部分必须字面量一致。
+- 借精确命令前缀**拼接额外参数会被拒**（token 数不符）；越界值、结构不符、非数字均拒。
+- 编程方式：`CommandGate.builder().allowExactCommands(...).allowCommandTemplates(...)`。
+
+> 仍是 default-deny：未登记的命令一律 `COMMAND_NOT_ALLOWED`。混沌命令与只读白名单、脚本许可三者并列、互不影响。
+
 ## 拒绝原因（RejectReason）
 
 | 原因 | 含义 |
@@ -214,7 +234,8 @@ ExecGuard guard = new ExecGuard(CommandGate.createDefault(), (raw, result) -> {
 | `ShellQuoter` | 逐参数单引号转义（安全命门） |
 | `ArgPolicy` | 每命令危险开关拦截 |
 | `ScriptPattern` | 受信脚本路径前缀匹配（可选脚本执行许可） |
-| `GateConfig` | 从外部 properties 配置构建网关（脚本前缀外部化） |
+| `ChaosPolicy` / `CommandTemplate` | 混沌注入命令白名单（精确整行 + 类型占位符模板） |
+| `GateConfig` | 从外部 properties 配置构建网关（脚本前缀、混沌命令外部化） |
 | `GateResult` / `RejectReason` | 结果与拒绝原因模型 |
 | `AuditSink` / `Slf4jAuditSink` | 审计接口与默认实现 |
 | `CommandRejectedException` | 拒绝时抛出 |

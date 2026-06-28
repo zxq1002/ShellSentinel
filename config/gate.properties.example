@@ -13,3 +13,15 @@
 # 安全提示：路径匹配是词法的，不校验文件内容。脚本目录可写时，
 # 必须用文件系统权限保证该目录不可被 exec 用户写入（目录归 root、容器非 root 运行）。
 gate.sh.scripts=/home/example/validate.sh,/home/example/validate-*.sh,/opt/app/check-*.sh
+
+# 混沌注入命令（可选）：故障注入命令本质危险，不能按命令名放行，
+# 只放行预先登记的整条命令。多条以分号 ; 分隔（; 在网关内本被禁，作分隔符安全）。
+#
+# 精确整行：运行时规范化后逐 token 完全一致才放行（最严格）
+gate.exact.commands=stress-ng --cpu 4 --timeout 60s; kill -STOP 12345
+#
+# 模板：结构钉死，仅类型占位符可变。占位符支持：
+#   {int}              非负整数
+#   {int:MIN..MAX}     闭区间内的非负整数
+#   {enum:A|B|C}       固定取值之一
+gate.command.templates=tc qdisc add dev eth0 root netem delay {int:0..10000}ms; stress-ng --cpu {int:1..16} --timeout {int:1..300}s; kill -{enum:STOP|CONT|TERM} {int}

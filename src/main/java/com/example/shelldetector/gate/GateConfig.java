@@ -28,6 +28,10 @@ public final class GateConfig {
 
     /** 受信脚本前缀（逗号分隔的 glob 列表），如 /home/example/validate-*.sh */
     public static final String KEY_SH_SCRIPTS = "gate.sh.scripts";
+    /** 混沌注入精确命令（分号分隔），如 stress-ng --cpu 4 --timeout 60s */
+    public static final String KEY_EXACT_COMMANDS = "gate.exact.commands";
+    /** 混沌注入命令模板（分号分隔），如 tc ... delay {int:0..10000}ms */
+    public static final String KEY_COMMAND_TEMPLATES = "gate.command.templates";
 
     private GateConfig() {
     }
@@ -40,6 +44,15 @@ public final class GateConfig {
         List<String> globs = parseList(props.getProperty(KEY_SH_SCRIPTS, ""));
         if (!globs.isEmpty()) {
             builder.allowShScripts(globs);
+        }
+        // 混沌命令含空格，用分号分隔（; 在网关内本被禁，作分隔符安全）
+        List<String> exact = parseList(props.getProperty(KEY_EXACT_COMMANDS, ""), ";");
+        if (!exact.isEmpty()) {
+            builder.allowExactCommands(exact);
+        }
+        List<String> templates = parseList(props.getProperty(KEY_COMMAND_TEMPLATES, ""), ";");
+        if (!templates.isEmpty()) {
+            builder.allowCommandTemplates(templates);
         }
         return builder.build();
     }
@@ -68,11 +81,18 @@ public final class GateConfig {
      * 解析逗号分隔列表，去空白并丢弃空项。
      */
     static List<String> parseList(String csv) {
+        return parseList(csv, ",");
+    }
+
+    /**
+     * 解析指定分隔符的列表，去空白并丢弃空项。
+     */
+    static List<String> parseList(String raw, String delimiter) {
         List<String> result = new ArrayList<>();
-        if (csv == null) {
+        if (raw == null) {
             return result;
         }
-        for (String part : csv.split(",")) {
+        for (String part : raw.split(java.util.regex.Pattern.quote(delimiter))) {
             String trimmed = part.trim();
             if (!trimmed.isEmpty()) {
                 result.add(trimmed);

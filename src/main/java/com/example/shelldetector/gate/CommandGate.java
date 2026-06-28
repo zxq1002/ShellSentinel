@@ -74,20 +74,23 @@ public final class CommandGate {
     private final Map<String, ArgPolicy> argPolicies;
     /** 脚本执行许可：解释器命令名 -> 受信脚本路径模式 */
     private final Map<String, List<ScriptPattern>> scriptRunners;
+    /** 混沌注入命令白名单 */
+    private final ChaosPolicy chaosPolicy;
 
     private CommandGate(Set<String> allowedCommands, Map<String, ArgPolicy> argPolicies,
-                        Map<String, List<ScriptPattern>> scriptRunners) {
+                        Map<String, List<ScriptPattern>> scriptRunners, ChaosPolicy chaosPolicy) {
         this.allowedCommands = allowedCommands;
         this.argPolicies = argPolicies;
         this.scriptRunners = scriptRunners;
+        this.chaosPolicy = chaosPolicy;
     }
 
     /**
-     * 创建使用默认只读白名单与默认参数策略的网关（不开启任何脚本执行许可）。
+     * 创建使用默认只读白名单与默认参数策略的网关（不开启脚本执行许可与混沌命令）。
      */
     public static CommandGate createDefault() {
         return new CommandGate(DEFAULT_ALLOWED, DEFAULT_ARG_POLICIES,
-                Collections.<String, List<ScriptPattern>>emptyMap());
+                Collections.<String, List<ScriptPattern>>emptyMap(), ChaosPolicy.EMPTY);
     }
 
     /**
@@ -104,6 +107,8 @@ public final class CommandGate {
         private final Set<String> allowed = new HashSet<>(DEFAULT_ALLOWED);
         private final Map<String, ArgPolicy> policies = new HashMap<>(DEFAULT_ARG_POLICIES);
         private final Map<String, List<ScriptPattern>> runners = new HashMap<>();
+        private final List<String> exactCommands = new ArrayList<>();
+        private final List<String> commandTemplates = new ArrayList<>();
 
         /**
          * 允许通过 {@code sh} 执行匹配给定前缀的受信脚本，如 {@code /home/example/validate-*.sh}。
@@ -127,11 +132,30 @@ public final class CommandGate {
             return this;
         }
 
+        /**
+         * 允许预先登记的<b>精确整条命令</b>（用于混沌注入），如
+         * {@code stress-ng --cpu 4 --timeout 60s}。运行时须规范化后逐 token 完全一致。
+         */
+        public Builder allowExactCommands(java.util.Collection<String> commandLines) {
+            exactCommands.addAll(commandLines);
+            return this;
+        }
+
+        /**
+         * 允许带类型占位符的<b>命令模板</b>（用于参数可变的混沌注入），如
+         * {@code tc qdisc add dev eth0 root netem delay {int:0..10000}ms}。
+         */
+        public Builder allowCommandTemplates(java.util.Collection<String> templateLines) {
+            commandTemplates.addAll(templateLines);
+            return this;
+        }
+
         public CommandGate build() {
             return new CommandGate(
                     Collections.unmodifiableSet(allowed),
                     Collections.unmodifiableMap(policies),
-                    Collections.unmodifiableMap(runners));
+                    Collections.unmodifiableMap(runners),
+                    ChaosPolicy.of(exactCommands, commandTemplates));
         }
     }
 
@@ -269,6 +293,8 @@ public final class CommandGate {
                 if (!matched) {
                     return GateResult.reject(RejectReason.SCRIPT_NOT_ALLOWED, command + " " + script);
                 }
+            } else if (chaosPolicy.matches(seg)) {
+                // 混沌注入：整条命令命中精确登记或模板，放行
             } else {
                 return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, command);
             }
