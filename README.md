@@ -65,8 +65,10 @@ if (r.isAllowed()) {
 
 ```
 ps grep ls cat head tail wc stat df du free uptime
-date whoami id hostname netstat ss cut tr uniq sort echo printf
+date whoami id hostname netstat ss cut tr sort echo printf
 ```
+
+> `uniq` 未纳入：其第二个位置参数是输出文件（写），无法可靠拦截；去重请用 `sort -u`。
 
 **有意不放行**：各类 shell 解释器（`sh/bash`）、`xargs/eval/exec/env`、`sudo/su`、写盘类（`tee/dd/tar`）、`find`、带命令逃逸的分页器与编辑器（`less/more/vi`）、带内嵌脚本的文本处理器（`awk/sed`）、脚本语言、网络与远程类、可写文件的下载工具等——它们不在白名单即被结构性拦截。
 
@@ -74,12 +76,13 @@ date whoami id hostname netstat ss cut tr uniq sort echo printf
 
 即便命令只读，某些开关仍危险，由 `ArgPolicy` 拦截：
 
-| 命令 | 禁用开关 | 原因 |
-|------|----------|------|
-| `grep` | `-f` / `--file`、`-P` / `--perl-regexp` | 读可控模式文件；PCRE 易 ReDoS |
-| `sort` | `-o` / `--output` | 写文件 |
-
-> 参数策略仍在按命令逐条审计补全中。
+| 命令 | 限制 | 原因 |
+|------|------|------|
+| `grep` | 禁 `-f` / `--file`、`-P` / `--perl-regexp` | 读可控模式文件；PCRE 易 ReDoS |
+| `sort` | 禁 `-o` / `--output` | 写文件 |
+| `date` | 禁 `-s` / `--set` | 修改系统时间 |
+| `hostname` | 位置参数数 0；禁 `-F` / `--file`、`-b` / `--boot` | 任何位置参数都会修改主机名 |
+| `tail` | 禁 `-f` / `-F` / `--follow` / `--retry` | 长驻进程（DoS） |
 
 ## 拒绝原因（RejectReason）
 
