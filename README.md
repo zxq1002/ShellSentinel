@@ -14,6 +14,32 @@
 - **三层白名单**：① 形状只允许纯管道；② 每段命令名都在白名单内（管道末段同样校验，结构性消灭 `| sh`）；③ 每段参数过该命令的参数策略。
 - **逐参数转义**（安全命门）：每个参数用单引号包裹并对内部单引号做标准转义（等价 `shlex.quote`），段间只插入受控的 ` | `。
 
+## 接受文法（EBNF）
+
+网关只识别下面这个**极小语言**，其余一律拒绝（fail-closed）。这是安全契约，应随代码同步维护：
+
+```ebnf
+pipeline      = command , { "|" , command } ;        (* 段间仅允许管道符 *)
+command       = word , { word } ;                     (* 词之间以空白分隔 *)
+word          = word-piece , { word-piece } ;         (* 相邻片段拼接为一个词，如 a"b"c *)
+word-piece    = bare-char | single-quoted | double-quoted ;
+single-quoted = "'" , { 任意字符 - "'" } , "'" ;      (* 内部全字面量 *)
+double-quoted = '"' , { 任意字符 - ( '"' | "$" | "`" | "\" ) } , '"' ;
+bare-char     = 可打印字符 - 空白 - "|" - forbidden ;
+forbidden     = ";" | "&" | "$" | "`" | "(" | ")" | "<" | ">"
+              | "{" | "}" | "*" | "?" | "!" | "~" | "\" | "[" | "]" | "#"
+              | 换行 | 回车 ;
+```
+
+附加约束（非文法可表达的部分）：
+
+- 长度 ≤ 1024，否则 `TOO_LONG`。
+- 引号未闭合 → `PARSE_FAILED`；空命令段（前导/`||`/尾随管道）→ `FORBIDDEN_SYNTAX`。
+- 词的逻辑值是**去引号后**的内容；放行时每个参数都会被重新单引号转义（见 `ShellQuoter`）。
+- 每段命令名须在白名单内，参数须过该命令 `ArgPolicy`。
+
+> 设计取向：这是**限制性识别器**而非通用 shell 解析器——安全性来自「只认极小语言 + 重建转义控制执行器输入」，而非解析保真度。`FuzzPropertiesTest` 与 `DifferentialShellTest` 对此做了属性测试与对真实 `/bin/sh` 的差分验证。
+
 ## 快速开始
 
 ```java
@@ -84,6 +110,36 @@ date whoami id hostname netstat ss cut tr sort echo printf
 | `hostname` | 位置参数数 0；禁 `-F` / `--file`、`-b` / `--boot` | 任何位置参数都会修改主机名 |
 | `tail` | 禁 `-f` / `-F` / `--follow` / `--retry` | 长驻进程（DoS） |
 
+### 受信脚本执行（可选，默认关闭）
+
+支持执行**镜像内随版本发布的可信脚本**（等同应用代码），如 `sh /home/example/validate-db.sh`。默认网关不放行 `sh`；需显式配置受信脚本前缀后才开启：
+
+脚本前缀**不写死在代码里**，从外部配置（properties）读入，运维可改、无需改代码：
+
+```properties
+# gate.properties（逗号分隔，可多个前缀）
+gate.sh.scripts=/home/example/validate-*.sh,/opt/app/check-*.sh
+```
+
+```java
+CommandGate gate = GateConfig.fromFile("/etc/shellsentinel/gate.properties");
+ExecGuard guard = new ExecGuard(gate, new Slf4jAuditSink());
+```
+
+也可用编程方式（前缀同样由调用方传入，便于来自任意配置源）：
+
+```java
+CommandGate gate = CommandGate.builder()
+    .allowShScripts(loadFromAnywhere())   // Collection<String>
+    .build();
+```
+
+> 设计取向：**仅脚本前缀走外部配置**；安全关键的命令白名单与参数策略仍固化在受评审代码中，避免有人借配置把 `sh`/`rm` 等放进白名单。
+
+放行条件（全部满足）：命令为 `sh`；**首参数**是匹配受信前缀的**绝对路径**脚本（`*` 不跨 `/`、禁 `..`）；脚本之后的参数原样透传（仍逐参数转义）。因此 `sh -c '...'`、`sh /tmp/x.sh`、`echo x | sh`、路径穿越等全部被拒（`SCRIPT_NOT_ALLOWED`）。
+
+> ⚠️ **残余风险（务必落实）**：路径匹配是**词法**的，只保证"文件在受信目录、文件名合规"，**不保证文件内容是镜像原版**。在脚本目录可写的环境下，能写入 `/home/example/` 的攻击者可投放 `validate-evil.sh` 并执行。由于无法将该目录单独只读挂载，**必须用文件系统权限保证脚本目录不可被 exec 用户写入**（如目录归 root、容器以非 root 运行），这是替代只读挂载的信任锚点。同样需防软链替换。
+
 ## 拒绝原因（RejectReason）
 
 | 原因 | 含义 |
@@ -94,6 +150,7 @@ date whoami id hostname netstat ss cut tr sort echo printf
 | `FORBIDDEN_SYNTAX` | 含被禁语法（分隔符、逻辑符、重定向、命令/进程替换、glob、换行等） |
 | `COMMAND_NOT_ALLOWED` | 命令名不在白名单 |
 | `ARG_NOT_ALLOWED` | 参数不被该命令策略允许 |
+| `SCRIPT_NOT_ALLOWED` | 脚本路径缺失或不在受信前缀白名单内 |
 
 ## 审计
 
@@ -113,6 +170,8 @@ ExecGuard guard = new ExecGuard(CommandGate.createDefault(), (raw, result) -> {
 | `CommandGate` | 限制性识别器 + 白名单 + 规范重建 |
 | `ShellQuoter` | 逐参数单引号转义（安全命门） |
 | `ArgPolicy` | 每命令危险开关拦截 |
+| `ScriptPattern` | 受信脚本路径前缀匹配（可选脚本执行许可） |
+| `GateConfig` | 从外部 properties 配置构建网关（脚本前缀外部化） |
 | `GateResult` / `RejectReason` | 结果与拒绝原因模型 |
 | `AuditSink` / `Slf4jAuditSink` | 审计接口与默认实现 |
 | `CommandRejectedException` | 拒绝时抛出 |
