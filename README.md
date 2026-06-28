@@ -1,218 +1,127 @@
 # ShellSentinel
 
-Linux Shell 高危指令检测 Java 类库，供其他系统集成使用。
+面向容器云平台 exec 接口的**命令安全网关**（Java 类库）。采用 **default-deny 白名单**模型：只放行「白名单命令组成的纯管道」，并把放行结果**重建为逐参数转义的规范串**交给调用方执行。
 
-## 功能特性
+> **定位与边界（务必先读）**
+> - 本库是**安全护栏**，用于在 `sh -c` 执行前拦截写操作与任意命令执行（RCE），适配「凭证可能泄露、仅需放行只读查询」的对抗场景。
+> - **不覆盖**：数据读取/外泄（纯读命令仍可读敏感数据，归 RBAC 与网络策略）、凭证安全、资源型 DoS（超大输出/长驻进程，归 exec 超时与容器 cgroup 限额）。
+> - **架构红线**：调用方必须执行网关返回的**规范串**，绝不能把原始输入串回灌给 `sh -c`。
 
-- **双解析引擎** - 支持 SIMPLE（默认）和 ANTLR 两种解析器，后者支持子 Shell 递归检测
-- **白名单 + 黑名单模式** - 严格的白名单优先策略
-- **Fail-Safe 故障安全** - 解析失败时默认执行拦截，防止畸形绕过
-- **静态规则审计** - 自动检测并提示重复 ID 或冲突的黑白名单规则
-- **参数化质量验证** - 核心验收案例在双模式下 100% 对等覆盖
-- Fluent Builder API 与 JSON 规则持久化
+## 设计要点
+
+- **不把原始串交给 shell**：解析 → 校验 → 用 token 重建规范串 → 才执行。攻击者原始字节永不进入 shell。
+- **限制性识别器**：只认 `简单命令 ('|' 简单命令)*` 这一微型语法，其余一律拒绝（fail-closed）。
+- **三层白名单**：① 形状只允许纯管道；② 每段命令名都在白名单内（管道末段同样校验，结构性消灭 `| sh`）；③ 每段参数过该命令的参数策略。
+- **逐参数转义**（安全命门）：每个参数用单引号包裹并对内部单引号做标准转义（等价 `shlex.quote`），段间只插入受控的 ` | `。
 
 ## 快速开始
 
 ```java
-import com.example.shelldetector.ShellDetector;
-import com.example.shelldetector.model.DetectionResult;
-import com.example.shelldetector.parser.ParserType;
+import com.example.shelldetector.gate.ExecGuard;
+import com.example.shelldetector.gate.CommandRejectedException;
 
-// 使用默认配置和 22 条内置规则（默认 SIMPLE 解析器）
-ShellDetector detector = ShellDetector.createDefault();
-DetectionResult result = detector.detect("rm -rf /");
+// 应用启动时创建（默认只读白名单 + SLF4J 审计），可作单例复用
+ExecGuard guard = ExecGuard.createDefault();
 
-if (!result.isPassed()) {
-    System.out.println("Blocked by rule: " + result.getMatchedRules().get(0).getName());
+try {
+    // 放行：返回重建后的规范串
+    String canonical = guard.canonicalOrThrow(userInput);
+    // 红线：执行 canonical，绝不执行 userInput
+    k8sExec(pod, new String[]{"sh", "-c", canonical});
+} catch (CommandRejectedException e) {
+    // 拒绝：返回 4xx，原因见 e.getReason()
+    log.warn("命令被拒绝: {} ({})", e.getReason(), e.getDetail());
 }
 ```
 
-## 自定义配置
+不抛异常的用法：
 
 ```java
-ShellDetector detector = ShellDetector.builder()
-    .withDefaultRules()
-    .withThreshold(RiskLevel.DANGER)  // 只拦截高危
-    .withParserType(ParserType.ANTLR) // 使用 ANTLR 解析器（默认 SIMPLE）
-    .failOnParseError(false)          // 解析失败时拦截命令 (默认 true=抛异常)
-    .failOnRuleConflict(true)         // 规则冲突时直接中断构建
-    .build();
+import com.example.shelldetector.gate.GateResult;
+
+GateResult r = guard.inspect(userInput);
+if (r.isAllowed()) {
+    exec(r.getCanonicalCommand());
+} else {
+    reject(r.getReason());   // 见下方拒绝原因
+}
 ```
 
-### 配置解析器类型
+示例：
 
-| 维度 | SIMPLE | ANTLR |
-|------|--------|-------|
-| **语法覆盖** | 基础分隔符、引号、转义 | 支持变量、字符串、子 Shell 递归解析 |
-| **子 Shell 解析** | ❌ 仅作为字符串匹配 | ✅ 递归剥离 `$()` 并独立扫描内容 |
-| **变量扩展** | ❌ 不识别 | ✅ 支持 `$VAR` 和 `${VAR}` |
-| **字符串处理** | ⚠️ 基础支持 | ✅ 准确识别单双引号作用域 |
-| **故障处理** | 状态机容错 | **Fail-Safe** (语法错误即拦截) |
+| 输入 | 结果 |
+|------|------|
+| `ps -ef \| grep nginx` | ✅ 放行 → `ps '-ef' \| grep 'nginx'` |
+| `df -h` | ✅ 放行 → `df '-h'` |
+| `rm -rf /` | ❌ COMMAND_NOT_ALLOWED |
+| `ps -ef \| sh` | ❌ COMMAND_NOT_ALLOWED（管道末段） |
+| `cat poke$(reboot)` | ❌ FORBIDDEN_SYNTAX |
+| `grep x /etc/hosts > /tmp/out` | ❌ FORBIDDEN_SYNTAX（重定向） |
+| `grep -f /tmp/p x` | ❌ ARG_NOT_ALLOWED（危险开关） |
 
-> 💡 **详细对比**: 关于两种解析器的安全性、漏报风险及误报控制的深度分析，请参阅 [解析器安全性深度对比分析报告](docs/parser_security_analysis.md)。
+## 命令白名单
 
-也可以直接构建 `DetectionConfig` 进行细粒度配置：
+默认放行以下只读命令（`CommandGate.createDefault()`）：
+
+```
+ps grep ls cat head tail wc stat df du free uptime
+date whoami id hostname netstat ss cut tr uniq sort echo printf
+```
+
+**有意不放行**：各类 shell 解释器（`sh/bash`）、`xargs/eval/exec/env`、`sudo/su`、写盘类（`tee/dd/tar`）、`find`、带命令逃逸的分页器与编辑器（`less/more/vi`）、带内嵌脚本的文本处理器（`awk/sed`）、脚本语言、网络与远程类、可写文件的下载工具等——它们不在白名单即被结构性拦截。
+
+### 参数策略
+
+即便命令只读，某些开关仍危险，由 `ArgPolicy` 拦截：
+
+| 命令 | 禁用开关 | 原因 |
+|------|----------|------|
+| `grep` | `-f` / `--file`、`-P` / `--perl-regexp` | 读可控模式文件；PCRE 易 ReDoS |
+| `sort` | `-o` / `--output` | 写文件 |
+
+> 参数策略仍在按命令逐条审计补全中。
+
+## 拒绝原因（RejectReason）
+
+| 原因 | 含义 |
+|------|------|
+| `EMPTY` | 输入为空 |
+| `TOO_LONG` | 超过长度上限（1024） |
+| `PARSE_FAILED` | 解析失败（如引号未闭合） |
+| `FORBIDDEN_SYNTAX` | 含被禁语法（分隔符、逻辑符、重定向、命令/进程替换、glob、换行等） |
+| `COMMAND_NOT_ALLOWED` | 命令名不在白名单 |
+| `ARG_NOT_ALLOWED` | 参数不被该命令策略允许 |
+
+## 审计
+
+每次决策都会经 `AuditSink` 记录。默认 `Slf4jAuditSink`：放行记 INFO（含规范串），拒绝记 WARN（含原因与原始串），logger 名 `com.example.shelldetector.audit`。可注入自定义实现对接 SIEM：
 
 ```java
-DetectionConfig config = DetectionConfig.builder()
-    .threshold(RiskLevel.RISK)
-    .parserType(ParserType.ANTLR)
-    .failOnParseError(true)
-    .build();
-
-ShellDetector detector = ShellDetector.builder()
-    .withConfig(config)
-    .withDefaultRules()
-    .build();
+ExecGuard guard = new ExecGuard(CommandGate.createDefault(), (raw, result) -> {
+    // 自定义审计：写数据库 / 上报 SIEM
+});
 ```
 
----
+## 模块结构
 
-## 内置规则 (v1.1)
+| 类 | 职责 |
+|----|------|
+| `ExecGuard` | 门面：校验 + 审计 + 返回规范串 / 抛拒绝 |
+| `CommandGate` | 限制性识别器 + 白名单 + 规范重建 |
+| `ShellQuoter` | 逐参数单引号转义（安全命门） |
+| `ArgPolicy` | 每命令危险开关拦截 |
+| `GateResult` / `RejectReason` | 结果与拒绝原因模型 |
+| `AuditSink` / `Slf4jAuditSink` | 审计接口与默认实现 |
+| `CommandRejectedException` | 拒绝时抛出 |
 
-目前内置 **22** 条高危检测规则，涵盖以下领域：
-
-### 1. 提权与审计规避 (New)
-- **builtin-su-sudo**: 检测 `su`/`sudo` 权限提升。
-- **builtin-history**: 检测 `history -c` 等清理历史记录、规避审计的行为。
-- **builtin-crontab**: 检测对计划任务的修改（疑似持久化提权）。
-
-### 2. 破坏性操作 (DANGER)
-- **builtin-rm-rf**: 递归删除操作检测。
-- **builtin-mkfs**: 格式化文件系统。
-- **builtin-dd**: 块设备写操作。
-- **builtin-reboot**: 系统关机/重启指令。
-
-### 3. 网络与文件安全 (RISK)
-- **builtin-reverse-shell**: 典型的反弹 Shell 模式检测。
-- **builtin-chmod-chown**: 危险权限与所属权递归修改。
-- **builtin-file-write**: 敏感路径重定向写操作。
-
-### 4. 基础查询白名单 (SAFE)
-- 包含 `ls`, `cat`, `echo`, `ps`, `top`, `grep`, `find`, `pwd`, `whoami` 等安全指令的受限匹配（共 7 条白名单规则）。
-
----
-
-## 质量保证
-
-项目通过了 **190** 个自动化测试案例的验证，包括：
-1. **参数化对比测试**：确保同一指令在 SIMPLE 和 ANTLR 模式下的行为完全一致。
-2. **安全压力测试**：验证超长输入、畸形转义、多层嵌套引号的解析稳定性。
-3. **绕过攻击模拟**：模拟子 Shell 嵌套、管道符隐藏等攻击手段。
-4. **递归深度保护**：验证对深度嵌套子 Shell 的 DoS 防护能力。
-
-**验收结论**: 🟢 **准予交付 (Final Approved by Gemini CLI)**
-
-## 动态管理规则
-
-```java
-detector.addRule(Rule.builder()
-    .id("my-script")
-    .name("My Dangerous Script")
-    .blacklist()
-    .pattern("./danger\\.sh.*")
-    .riskLevel(RiskLevel.DANGER)
-    .description("My custom dangerous script")
-    .build());
-
-detector.saveRulesToJson("rules.json");
-```
-
-## 风险等级
-
-- `SAFE` - 安全
-- `RISK` - 风险
-- `DANGER` - 高危
-
-## 核心检测逻辑
-
-### 检测流程
-
-```
-┌─────────────────┐
-│   输入命令       │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  1. 命令提取     │
-│  按 [;|&] 分割   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ 2. 整条命令      │
-│   白名单检查     │
-└────────┬────────┘
-         │
-┌────────┴────────┐
-│                 │
-▼                 ▼
-┌─────────┐   ┌─────────────────┐
-│ 匹配成功 │   │     不匹配       │
-└────┬────┘   └────────┬────────┘
-     │                 │
-     ▼                 ▼
-┌─────────┐   ┌─────────────────┐
-│  PASS   │   │ 3. 所有子命令     │
-└─────────┘   │   白名单检查      │
-             └────────┬────────┘
-                      │
-         ┌────────────┴────────────┐
-         │                         │
-         ▼                         ▼
-    ┌─────────┐             ┌─────────────────┐
-    │ 全部匹配 │             │   存在不匹配      │
-    └────┬────┘             └────────┬────────┘
-         │                         │
-         ▼                         ▼
-    ┌─────────┐             ┌─────────────────┐
-    │  PASS   │             │ 4. 所有子命令     │
-    └─────────┘             │   黑名单检测      │
-                            └────────┬────────┘
-                                     │
-                                     ▼
-                           ┌─────────────────┐
-                           │ 5. 风险评估      │
-                           └────────┬────────┘
-                                    │
-                        ┌───────────┴───────────┐
-                        │                       │
-                        ▼                       ▼
-                   ┌─────────┐           ┌─────────┐
-                   │ >= 阈值  │           │  < 阈值 │
-                   └────┬────┘           └────┬────┘
-                        │                     │
-                        ▼                     ▼
-                   ┌─────────┐           ┌─────────┐
-                   │  BLOCK  │           │  PASS   │
-                   └─────────┘           └─────────┘
-```
-
-### 关键步骤说明
-
-| 步骤 | 说明 | 关键细节 |
-|------|------|----------|
-| **1. 命令提取** | 基于 ParserType 选择解析器 | 提取基础命令及其关联的操作符（管道、重定向） |
-| **2. 整条命令白名单检查** | 检查原始输入是否命中整体放行规则 | 适用于已审计的复杂脚本整串放行 |
-| **3. 所有子命令白名单检查** | 确保拆分后的每一条指令都在安全白名单内 | 用于实现严格的限制性 Shell |
-| **4. 所有子命令黑名单检测** | 逐一对比子命令是否命中恶意模式 | 包含对子 Shell 的递归剥离与扫描 (ANTLR) |
-| **5. 风险评估** | 综合所有命中规则，按最高风险等级判定 | 风险等级 >= 阈值即拦截 |
-
-## 规则编写建议
-
-1. **使用精确锚点**：建议使用 `\b` 等正则锚点（例如 `\brm\b`），以防止该字符串出现在其他命令的参数中时被误拦截。
-2. **处理管道符**：如果需要禁止特定操作符，可以直接在黑名单中配置如 `\|` 或 `&` 的规则。
-3. **白名单最小化**：白名单模式 `(?!.*[;|&<>])` 旨在防止利用特殊字符在白名单指令后拼接恶意载荷。
-
-## 构建项目
+## 构建
 
 ```bash
 mvn clean install
 ```
 
----
+依赖极简：仅 SLF4J（运行）+ JUnit 5（测试）。
 
 ## AI 生成申明
 
-本项目的部分代码和文档由 AI 辅助生成，已通过严格的手工与自动化 UAT 验收，但仍建议在使用前结合项目需求进行充分的测试和代码审查。
+本项目的部分代码和文档由 AI 辅助生成，建议在使用前结合项目需求进行充分的测试和代码审查。
