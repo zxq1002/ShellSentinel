@@ -125,6 +125,14 @@ mvn clean install
 
 依赖极简：仅 SLF4J（运行）+ JUnit 5（测试）。
 
+### 架构红线守护
+
+本库是纯校验组件，**绝不执行命令**——执行规范串是调用方的职责。`scripts/check-redline.sh` 在 CI 中校验库主代码不出现任何进程执行 API（`Runtime.exec` / `ProcessBuilder`），防止未来回归把原始串回灌给 `sh -c`：
+
+```bash
+./scripts/check-redline.sh
+```
+
 ## AI 生成申明
 
 本项目的部分代码和文档由 AI 辅助生成，建议在使用前结合项目需求进行充分的测试和代码审查。

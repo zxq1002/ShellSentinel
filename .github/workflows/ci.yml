@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, "feature/**" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+
+      # 架构红线：库内不得出现进程执行 API（禁止把原始串回灌 sh -c）
+      - name: Red-line guard
+        run: ./scripts/check-redline.sh
+
+      - name: Build and test
+        run: mvn -B clean verify
