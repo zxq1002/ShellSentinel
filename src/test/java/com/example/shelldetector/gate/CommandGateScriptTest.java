@@ -112,6 +112,44 @@ class CommandGateScriptTest {
         assertEquals(RejectReason.SCRIPT_NOT_ALLOWED, r.getReason());
     }
 
+    // ---------- 精确路径（不带通配符） ----------
+
+    @Test
+    void testExactScriptPathAllowed() {
+        CommandGate g = CommandGate.builder().allowShScript("/home/example/validate.sh").build();
+        assertTrue(g.validate("sh /home/example/validate.sh").isAllowed());
+    }
+
+    @Test
+    void testExactScriptPathRejectsLookalikes() {
+        CommandGate g = CommandGate.builder().allowShScript("/home/example/validate.sh").build();
+        assertFalse(g.validate("sh /home/example/validate.sh.bak").isAllowed());
+        assertFalse(g.validate("sh /home/example/validate-db.sh").isAllowed());
+    }
+
+    @Test
+    void testExactScriptWithArgs() {
+        CommandGate g = CommandGate.builder().allowShScript("/home/example/validate.sh").build();
+        GateResult r = g.validate("sh /home/example/validate.sh --verbose");
+        assertTrue(r.isAllowed());
+        assertEquals("sh '/home/example/validate.sh' '--verbose'", r.getCanonicalCommand());
+    }
+
+    @Test
+    void testExactAndGlobCanCoexist() {
+        CommandGate g = CommandGate.builder()
+                .allowShScript("/home/example/validate.sh", "/opt/app/check-*.sh")
+                .build();
+        assertTrue(g.validate("sh /home/example/validate.sh").isAllowed());
+        assertTrue(g.validate("sh /opt/app/check-health.sh").isAllowed());
+    }
+
+    @Test
+    void testMultipleWildcardsRejectedAtConfig() {
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandGate.builder().allowShScript("/home/*/validate-*.sh"));
+    }
+
     // ---------- 默认网关不开启 sh ----------
 
     @Test

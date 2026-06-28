@@ -1,12 +1,15 @@
 # ShellSentinel 命令安全网关 - 配置样例
 # 复制为 gate.properties 后按需修改，通过 GateConfig.fromFile(path) 载入。
 #
-# 受信脚本前缀（可选）：仅当形如 `sh <匹配脚本> [args]` 时放行执行镜像内可信脚本。
-#   - 逗号分隔，可配置多个前缀
-#   - 必须是绝对路径；glob 中的 * 不跨目录分隔符 /
+# 受信脚本（可选）：仅当形如 `sh <匹配脚本> [args]` 时放行执行镜像内可信脚本。
+#   - 逗号分隔，可配置多条
+#   - 每条必须是绝对路径，可为两种形式：
+#       * 精确路径（无 *，最严格、推荐）：/home/example/validate.sh
+#       * 前缀通配（恰好一个 *，* 不跨目录分隔符 /）：/home/example/validate-*.sh
+#       含多个 * 会在加载时报错
 #   - sh 的所有开关一律禁止（堵死 sh -c）；脚本之后的参数原样透传
 #   - 不配置此项则完全不放行 sh（默认拒绝）
 #
 # 安全提示：路径匹配是词法的，不校验文件内容。脚本目录可写时，
 # 必须用文件系统权限保证该目录不可被 exec 用户写入（目录归 root、容器非 root 运行）。
-gate.sh.scripts=/home/example/validate-*.sh,/opt/app/check-*.sh
+gate.sh.scripts=/home/example/validate.sh,/home/example/validate-*.sh,/opt/app/check-*.sh
