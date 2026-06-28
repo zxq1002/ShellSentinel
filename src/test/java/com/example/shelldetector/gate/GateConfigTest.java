@@ -60,4 +60,29 @@ class GateConfigTest {
                 .build();
         assertTrue(gate.validate("sh /opt/check-x.sh").isAllowed());
     }
+
+    @Test
+    void testExactChaosCommandsFromProperties() {
+        Properties p = new Properties();
+        // 多条以分号分隔（; 在网关内本被禁，作分隔符安全）
+        p.setProperty("gate.exact.commands",
+                "stress-ng --cpu 4 --timeout 60s; kill -STOP 12345");
+        CommandGate gate = GateConfig.fromProperties(p);
+
+        assertTrue(gate.validate("stress-ng --cpu 4 --timeout 60s").isAllowed());
+        assertTrue(gate.validate("kill -STOP 12345").isAllowed());
+        assertFalse(gate.validate("stress-ng --cpu 8 --timeout 60s").isAllowed());
+    }
+
+    @Test
+    void testCommandTemplatesFromProperties() {
+        Properties p = new Properties();
+        p.setProperty("gate.command.templates",
+                "tc qdisc add dev eth0 root netem delay {int:0..10000}ms; kill -{enum:STOP|CONT} {int}");
+        CommandGate gate = GateConfig.fromProperties(p);
+
+        assertTrue(gate.validate("tc qdisc add dev eth0 root netem delay 100ms").isAllowed());
+        assertFalse(gate.validate("tc qdisc add dev eth0 root netem delay 99999ms").isAllowed());
+        assertTrue(gate.validate("kill -CONT 999").isAllowed());
+    }
 }
