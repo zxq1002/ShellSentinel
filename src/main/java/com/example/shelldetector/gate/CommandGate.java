@@ -72,17 +72,67 @@ public final class CommandGate {
 
     private final Set<String> allowedCommands;
     private final Map<String, ArgPolicy> argPolicies;
+    /** 脚本执行许可：解释器命令名 -> 受信脚本路径模式 */
+    private final Map<String, List<ScriptPattern>> scriptRunners;
 
-    private CommandGate(Set<String> allowedCommands, Map<String, ArgPolicy> argPolicies) {
+    private CommandGate(Set<String> allowedCommands, Map<String, ArgPolicy> argPolicies,
+                        Map<String, List<ScriptPattern>> scriptRunners) {
         this.allowedCommands = allowedCommands;
         this.argPolicies = argPolicies;
+        this.scriptRunners = scriptRunners;
     }
 
     /**
-     * 创建使用默认只读白名单与默认参数策略的网关。
+     * 创建使用默认只读白名单与默认参数策略的网关（不开启任何脚本执行许可）。
      */
     public static CommandGate createDefault() {
-        return new CommandGate(DEFAULT_ALLOWED, DEFAULT_ARG_POLICIES);
+        return new CommandGate(DEFAULT_ALLOWED, DEFAULT_ARG_POLICIES,
+                Collections.<String, List<ScriptPattern>>emptyMap());
+    }
+
+    /**
+     * 创建网关构建器（默认含只读白名单 + 默认参数策略，可追加脚本执行许可）。
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * 网关构建器。
+     */
+    public static final class Builder {
+        private final Set<String> allowed = new HashSet<>(DEFAULT_ALLOWED);
+        private final Map<String, ArgPolicy> policies = new HashMap<>(DEFAULT_ARG_POLICIES);
+        private final Map<String, List<ScriptPattern>> runners = new HashMap<>();
+
+        /**
+         * 允许通过 {@code sh} 执行匹配给定前缀的受信脚本，如 {@code /home/example/validate-*.sh}。
+         * <p>
+         * 仅放行 {@code sh <匹配脚本> [args]}；sh 的所有开关（含 {@code -c}）一律禁止；
+         * 脚本之后的参数原样透传（仍逐参数转义）。可多次调用追加多个模式。
+         * </p>
+         */
+        public Builder allowShScript(String... globs) {
+            return allowShScripts(Arrays.asList(globs));
+        }
+
+        /**
+         * 同 {@link #allowShScript(String...)}，接受集合（便于从外部配置读入）。
+         */
+        public Builder allowShScripts(java.util.Collection<String> globs) {
+            List<ScriptPattern> patterns = runners.computeIfAbsent("sh", k -> new ArrayList<>());
+            for (String glob : globs) {
+                patterns.add(ScriptPattern.of(glob));
+            }
+            return this;
+        }
+
+        public CommandGate build() {
+            return new CommandGate(
+                    Collections.unmodifiableSet(allowed),
+                    Collections.unmodifiableMap(policies),
+                    Collections.unmodifiableMap(runners));
+        }
     }
 
     /**
@@ -195,15 +245,34 @@ public final class CommandGate {
                 return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX, "empty segment");
             }
             String command = seg.get(0);
-            if (!allowedCommands.contains(command)) {
+            List<String> args = seg.subList(1, seg.size());
+
+            if (allowedCommands.contains(command)) {
+                ArgPolicy policy = argPolicies.getOrDefault(command, ArgPolicy.PERMISSIVE);
+                String violation = policy.firstViolation(args);
+                if (violation != null) {
+                    return GateResult.reject(RejectReason.ARG_NOT_ALLOWED, command + " " + violation);
+                }
+            } else if (scriptRunners.containsKey(command)) {
+                // 脚本执行许可：首参数必须是匹配受信前缀的脚本路径，其余参数原样透传
+                if (args.isEmpty()) {
+                    return GateResult.reject(RejectReason.SCRIPT_NOT_ALLOWED, command + " (missing script)");
+                }
+                String script = args.get(0);
+                boolean matched = false;
+                for (ScriptPattern pattern : scriptRunners.get(command)) {
+                    if (pattern.matches(script)) {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) {
+                    return GateResult.reject(RejectReason.SCRIPT_NOT_ALLOWED, command + " " + script);
+                }
+            } else {
                 return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, command);
             }
-            ArgPolicy policy = argPolicies.getOrDefault(command, ArgPolicy.PERMISSIVE);
-            List<String> args = seg.subList(1, seg.size());
-            String violation = policy.firstViolation(args);
-            if (violation != null) {
-                return GateResult.reject(RejectReason.ARG_NOT_ALLOWED, command + " " + violation);
-            }
+
             StringBuilder canonical = new StringBuilder(command);
             for (String arg : args) {
                 canonical.append(' ').append(ShellQuoter.quote(arg));

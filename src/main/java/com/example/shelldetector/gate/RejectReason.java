@@ -15,5 +15,7 @@ public enum RejectReason {
     /** 命令名不在白名单内 */
     COMMAND_NOT_ALLOWED,
     /** 参数不被该命令的参数策略允许 */
-    ARG_NOT_ALLOWED
+    ARG_NOT_ALLOWED,
+    /** 脚本执行许可：脚本路径缺失或不在受信前缀白名单内 */
+    SCRIPT_NOT_ALLOWED
 }
