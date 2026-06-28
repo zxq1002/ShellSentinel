@@ -38,7 +38,7 @@ public final class CommandGate {
     private static final Set<String> DEFAULT_ALLOWED = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "ps", "grep", "ls", "cat", "head", "tail", "wc", "stat",
             "df", "du", "free", "uptime", "date", "whoami", "id", "hostname",
-            "netstat", "ss", "cut", "tr", "uniq", "sort", "echo", "printf"
+            "netstat", "ss", "cut", "tr", "sort", "echo", "printf"
     )));
 
     /** 默认参数策略：拦截白名单命令的危险开关 */
@@ -54,6 +54,19 @@ public final class CommandGate {
         map.put("sort", ArgPolicy.deny(
                 new HashSet<>(Arrays.asList('o')),
                 new HashSet<>(Arrays.asList("output"))));
+        // date -s（修改系统时间）
+        map.put("date", ArgPolicy.deny(
+                new HashSet<>(Arrays.asList('s')),
+                new HashSet<>(Arrays.asList("set"))));
+        // hostname：-F/--file 从文件设置；任何位置参数都会修改主机名 -> 位置参数上限 0
+        map.put("hostname", ArgPolicy.deny(
+                new HashSet<>(Arrays.asList('F', 'b')),
+                new HashSet<>(Arrays.asList("file", "boot")),
+                0));
+        // tail -f/-F（长驻，DoS）
+        map.put("tail", ArgPolicy.deny(
+                new HashSet<>(Arrays.asList('f', 'F')),
+                new HashSet<>(Arrays.asList("follow", "retry"))));
         return Collections.unmodifiableMap(map);
     }
 
@@ -186,12 +199,13 @@ public final class CommandGate {
                 return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, command);
             }
             ArgPolicy policy = argPolicies.getOrDefault(command, ArgPolicy.PERMISSIVE);
+            List<String> args = seg.subList(1, seg.size());
+            String violation = policy.firstViolation(args);
+            if (violation != null) {
+                return GateResult.reject(RejectReason.ARG_NOT_ALLOWED, command + " " + violation);
+            }
             StringBuilder canonical = new StringBuilder(command);
-            for (int i = 1; i < seg.size(); i++) {
-                String arg = seg.get(i);
-                if (!policy.isAllowed(arg)) {
-                    return GateResult.reject(RejectReason.ARG_NOT_ALLOWED, command + " " + arg);
-                }
+            for (String arg : args) {
                 canonical.append(' ').append(ShellQuoter.quote(arg));
             }
             canonicalSegments.add(canonical.toString());

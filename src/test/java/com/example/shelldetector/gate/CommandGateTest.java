@@ -181,4 +181,72 @@ class CommandGateTest {
         assertTrue(r.isAllowed());
         assertEquals("grep '-i' 'nginx'", r.getCanonicalCommand());
     }
+
+    // ---------- 参数策略补全：写经开关 / 写经位置参数 / 长驻 ----------
+
+    @Test
+    void testDateSetFlagRejected() {
+        // date -s 修改系统时间（写）
+        GateResult r = gate.validate("date -s 2020-01-01");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    }
+
+    @Test
+    void testDateLongSetRejected() {
+        GateResult r = gate.validate("date --set=2020-01-01");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    }
+
+    @Test
+    void testDateFormatAllowed() {
+        GateResult r = gate.validate("date +%Y");
+        assertTrue(r.isAllowed());
+        assertEquals("date '+%Y'", r.getCanonicalCommand());
+    }
+
+    @Test
+    void testHostnameSetByPositionalRejected() {
+        // hostname newname 修改主机名（写，经位置参数）
+        GateResult r = gate.validate("hostname newname");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    }
+
+    @Test
+    void testHostnameReadFlagAllowed() {
+        GateResult r = gate.validate("hostname -I");
+        assertTrue(r.isAllowed());
+        assertEquals("hostname '-I'", r.getCanonicalCommand());
+    }
+
+    @Test
+    void testHostnamePlainAllowed() {
+        GateResult r = gate.validate("hostname");
+        assertTrue(r.isAllowed());
+        assertEquals("hostname", r.getCanonicalCommand());
+    }
+
+    @Test
+    void testTailFollowRejected() {
+        GateResult r = gate.validate("tail -f /var/log/app.log");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    }
+
+    @Test
+    void testTailNormalAllowed() {
+        GateResult r = gate.validate("tail -n 100 /var/log/app.log");
+        assertTrue(r.isAllowed());
+        assertEquals("tail '-n' '100' '/var/log/app.log'", r.getCanonicalCommand());
+    }
+
+    @Test
+    void testUniqRemovedFromAllowlist() {
+        // uniq 第二位置参数是输出文件（写），从白名单移除
+        GateResult r = gate.validate("ps -ef | uniq");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.COMMAND_NOT_ALLOWED, r.getReason());
+    }
 }
