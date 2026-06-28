@@ -157,9 +157,12 @@ date whoami id hostname netstat ss cut tr sort echo printf
 脚本前缀**不写死在代码里**，从外部配置（properties）读入，运维可改、无需改代码：
 
 ```properties
-# gate.properties（逗号分隔，可多个前缀）
-gate.sh.scripts=/home/example/validate-*.sh,/opt/app/check-*.sh
+# gate.properties（逗号分隔，可多条）
+# 每条可为：精确路径（无 *，最严格）或前缀通配（恰好一个 *，* 不跨目录）
+gate.sh.scripts=/home/example/validate.sh,/home/example/validate-*.sh,/opt/app/check-*.sh
 ```
+
+> 路径形式：**不带通配符的完整路径**（如 `/home/example/validate.sh`）做精确匹配，最严格、推荐；**带一个 `*`** 做目录内文件名前缀匹配；含**多个 `*`** 会在加载时报错。
 
 ```java
 CommandGate gate = GateConfig.fromFile("/etc/shellsentinel/gate.properties");
