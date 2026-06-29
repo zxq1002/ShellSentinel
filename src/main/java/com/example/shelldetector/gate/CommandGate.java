@@ -54,10 +54,12 @@ public final class CommandGate {
         map.put("sort", ArgPolicy.deny(
                 new HashSet<>(Arrays.asList('o')),
                 new HashSet<>(Arrays.asList("output"))));
-        // date -s（修改系统时间）
-        map.put("date", ArgPolicy.deny(
+        // date：-s/--set 改系统时间；BusyBox/BSD 下裸位置参数（date MMDDhhmm）同样改时钟，
+        // 故位置参数仅允许 +FORMAT 读取形式
+        map.put("date", ArgPolicy.denyPositionalsWithoutPrefix(
                 new HashSet<>(Arrays.asList('s')),
-                new HashSet<>(Arrays.asList("set"))));
+                new HashSet<>(Arrays.asList("set")),
+                "+"));
         // hostname：-F/--file 从文件设置；任何位置参数都会修改主机名 -> 位置参数上限 0
         map.put("hostname", ArgPolicy.deny(
                 new HashSet<>(Arrays.asList('F', 'b')),
@@ -299,7 +301,8 @@ public final class CommandGate {
                 return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, command);
             }
 
-            StringBuilder canonical = new StringBuilder(command);
+            // 命令词同样转义：确立「每个 token 都被转义」的不变量，杜绝命令词含元字符时的注入
+            StringBuilder canonical = new StringBuilder(ShellQuoter.quote(command));
             for (String arg : args) {
                 canonical.append(' ').append(ShellQuoter.quote(arg));
             }

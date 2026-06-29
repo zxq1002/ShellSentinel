@@ -65,6 +65,10 @@ public final class ScriptPattern {
         }
         int slash = before.lastIndexOf('/');
         String dir = before.substring(0, slash);
+        if (dir.isEmpty()) {
+            // 如 "/*"：目录为根，过于宽泛，拒绝
+            throw new IllegalArgumentException("脚本模式目录过于宽泛: " + glob);
+        }
         String filePrefix = before.substring(slash + 1);
         return new ScriptPattern(dir, filePrefix, suffix);
     }

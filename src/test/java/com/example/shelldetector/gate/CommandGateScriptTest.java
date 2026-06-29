@@ -23,21 +23,21 @@ class CommandGateScriptTest {
     void testTrustedScriptAllowed() {
         GateResult r = gate.validate("sh /home/example/validate-db.sh");
         assertTrue(r.isAllowed());
-        assertEquals("sh '/home/example/validate-db.sh'", r.getCanonicalCommand());
+        assertEquals("'sh' '/home/example/validate-db.sh'", r.getCanonicalCommand());
     }
 
     @Test
     void testTrustedScriptWithArgsPassedThrough() {
         GateResult r = gate.validate("sh /home/example/validate-db.sh --verbose 5");
         assertTrue(r.isAllowed());
-        assertEquals("sh '/home/example/validate-db.sh' '--verbose' '5'", r.getCanonicalCommand());
+        assertEquals("'sh' '/home/example/validate-db.sh' '--verbose' '5'", r.getCanonicalCommand());
     }
 
     @Test
     void testTrustedScriptInPipeAllowed() {
         GateResult r = gate.validate("sh /home/example/validate-db.sh | grep OK");
         assertTrue(r.isAllowed());
-        assertEquals("sh '/home/example/validate-db.sh' | grep 'OK'", r.getCanonicalCommand());
+        assertEquals("'sh' '/home/example/validate-db.sh' | 'grep' 'OK'", r.getCanonicalCommand());
     }
 
     @Test
@@ -132,7 +132,7 @@ class CommandGateScriptTest {
         CommandGate g = CommandGate.builder().allowShScript("/home/example/validate.sh").build();
         GateResult r = g.validate("sh /home/example/validate.sh --verbose");
         assertTrue(r.isAllowed());
-        assertEquals("sh '/home/example/validate.sh' '--verbose'", r.getCanonicalCommand());
+        assertEquals("'sh' '/home/example/validate.sh' '--verbose'", r.getCanonicalCommand());
     }
 
     @Test

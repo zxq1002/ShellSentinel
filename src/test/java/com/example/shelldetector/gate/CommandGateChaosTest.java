@@ -27,7 +27,7 @@ class CommandGateChaosTest {
     void testExactCommandAllowed() {
         GateResult r = exactGate.validate("stress-ng --cpu 4 --timeout 60s");
         assertTrue(r.isAllowed());
-        assertEquals("stress-ng '--cpu' '4' '--timeout' '60s'", r.getCanonicalCommand());
+        assertEquals("'stress-ng' '--cpu' '4' '--timeout' '60s'", r.getCanonicalCommand());
     }
 
     @Test
@@ -61,7 +61,7 @@ class CommandGateChaosTest {
     void testTemplateInRangeAllowed() {
         GateResult r = tplGate.validate("tc qdisc add dev eth0 root netem delay 100ms");
         assertTrue(r.isAllowed());
-        assertEquals("tc 'qdisc' 'add' 'dev' 'eth0' 'root' 'netem' 'delay' '100ms'",
+        assertEquals("'tc' 'qdisc' 'add' 'dev' 'eth0' 'root' 'netem' 'delay' '100ms'",
                 r.getCanonicalCommand());
     }
 
@@ -112,5 +112,17 @@ class CommandGateChaosTest {
     void testChaosCoexistsWithReadOnlyPipeline() {
         // 只读命令仍正常
         assertTrue(exactGate.validate("ps -ef | grep nginx").isAllowed());
+    }
+
+    @Test
+    void testCommandWordWithMetacharIsQuotedInCanonical() {
+        // 防御：即便运维误配了含元字符的命令词，攻击者借引号命中后，
+        // 命令词在规范串中也必须被转义为字面量（不会被 shell 二次解释为命令分隔）
+        CommandGate g = CommandGate.builder()
+                .allowExactCommands(Arrays.asList("foo;bar baz"))
+                .build();
+        GateResult r = g.validate("'foo;bar' baz");
+        assertTrue(r.isAllowed());
+        assertEquals("'foo;bar' 'baz'", r.getCanonicalCommand());
     }
 }

@@ -25,16 +25,20 @@ public final class ArgPolicy {
 
     /** 不设任何限制的空策略 */
     public static final ArgPolicy PERMISSIVE = new ArgPolicy(
-            Collections.<Character>emptySet(), Collections.<String>emptySet(), -1);
+            Collections.<Character>emptySet(), Collections.<String>emptySet(), -1, null);
 
     private final Set<Character> deniedShortFlags;
     private final Set<String> deniedLongFlags;
     private final int maxPositional;
+    /** 位置参数必须以此前缀开头（null 表示无约束）。用于 date 仅允许 +FORMAT 读取，拦截 date <时间> 改时钟 */
+    private final String requiredPositionalPrefix;
 
-    private ArgPolicy(Set<Character> deniedShortFlags, Set<String> deniedLongFlags, int maxPositional) {
+    private ArgPolicy(Set<Character> deniedShortFlags, Set<String> deniedLongFlags,
+                      int maxPositional, String requiredPositionalPrefix) {
         this.deniedShortFlags = deniedShortFlags;
         this.deniedLongFlags = deniedLongFlags;
         this.maxPositional = maxPositional;
+        this.requiredPositionalPrefix = requiredPositionalPrefix;
     }
 
     /**
@@ -44,7 +48,7 @@ public final class ArgPolicy {
      * @param deniedLongFlags  禁用的长选项名（不含前导 {@code --}，如 "file"、"output"）
      */
     public static ArgPolicy deny(Set<Character> deniedShortFlags, Set<String> deniedLongFlags) {
-        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), -1);
+        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), -1, null);
     }
 
     /**
@@ -55,7 +59,21 @@ public final class ArgPolicy {
      * @param maxPositional    位置参数上限（-1 表示不限）
      */
     public static ArgPolicy deny(Set<Character> deniedShortFlags, Set<String> deniedLongFlags, int maxPositional) {
-        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), maxPositional);
+        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), maxPositional, null);
+    }
+
+    /**
+     * 构造要求位置参数带指定前缀的策略（位置参数不限数量）。
+     *
+     * @param deniedShortFlags         禁用的短选项字符
+     * @param deniedLongFlags          禁用的长选项名
+     * @param requiredPositionalPrefix 位置参数必须以此前缀开头（如 date 的 "+"）
+     */
+    public static ArgPolicy denyPositionalsWithoutPrefix(Set<Character> deniedShortFlags,
+                                                         Set<String> deniedLongFlags,
+                                                         String requiredPositionalPrefix) {
+        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), -1,
+                requiredPositionalPrefix);
     }
 
     /**
@@ -74,6 +92,9 @@ public final class ArgPolicy {
             } else {
                 positional++;
                 if (maxPositional >= 0 && positional > maxPositional) {
+                    return arg;
+                }
+                if (requiredPositionalPrefix != null && !arg.startsWith(requiredPositionalPrefix)) {
                     return arg;
                 }
             }
