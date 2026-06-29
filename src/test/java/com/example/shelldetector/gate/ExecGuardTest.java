@@ -31,7 +31,7 @@ class ExecGuardTest {
 
         String canonical = guard.canonicalOrThrow("ps -ef | grep nginx");
 
-        assertEquals("ps '-ef' | grep 'nginx'", canonical);
+        assertEquals("'ps' '-ef' | 'grep' 'nginx'", canonical);
         // 审计恰好记录一次，且为放行
         assertEquals(1, sink.results.size());
         assertTrue(sink.results.get(0).isAllowed());
@@ -68,6 +68,6 @@ class ExecGuardTest {
     @Test
     void testCreateDefaultUsesSlf4jSinkAndWorks() throws Exception {
         ExecGuard guard = ExecGuard.createDefault();
-        assertEquals("df '-h'", guard.canonicalOrThrow("df -h"));
+        assertEquals("'df' '-h'", guard.canonicalOrThrow("df -h"));
     }
 }

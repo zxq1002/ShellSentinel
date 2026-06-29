@@ -67,6 +67,29 @@ class DifferentialShellTest {
         assertEquals(args, shellSplit(args));
     }
 
+    @Test
+    void testCanonicalPipelineExecutesAsIntended() throws Exception {
+        CommandGate gate = CommandGate.createDefault();
+
+        // 单命令：含元字符的参数必须作为字面量传给 echo，而非被 shell 解释
+        assertCanonicalOutput(gate, "echo 'a;b' c", "a;b c\n");
+        assertCanonicalOutput(gate, "echo 'x|y' 'z>w'", "x|y z>w\n");
+        // 管道：echo | cat 端到端跑通，命令词被转义后仍正确执行
+        assertCanonicalOutput(gate, "echo hello | cat", "hello\n");
+    }
+
+    /** 校验输入经网关放行后，其规范串交给真实 /bin/sh 执行的输出符合预期 */
+    private static void assertCanonicalOutput(CommandGate gate, String input, String expected) throws Exception {
+        GateResult r = gate.validate(input);
+        assertTrue(r.isAllowed(), "应放行: " + input);
+        Process p = new ProcessBuilder("/bin/sh", "-c", r.getCanonicalCommand())
+                .redirectErrorStream(false).start();
+        String out = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+        assertTrue(p.waitFor(10, TimeUnit.SECONDS), "sh 执行超时");
+        assertEquals(0, p.exitValue(), "sh 退出码非 0");
+        assertEquals(expected, out, "规范串执行输出不符: " + r.getCanonicalCommand());
+    }
+
     /**
      * 用 ShellQuoter 转义每个参数，交给真实 /bin/sh，让 printf 把 shell 拆出的参数
      * 以 NUL 分隔打印出来，再切回列表。

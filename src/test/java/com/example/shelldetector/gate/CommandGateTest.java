@@ -21,21 +21,21 @@ class CommandGateTest {
     void testSingleAllowedCommandPasses() {
         GateResult r = gate.validate("ps -ef");
         assertTrue(r.isAllowed());
-        assertEquals("ps '-ef'", r.getCanonicalCommand());
+        assertEquals("'ps' '-ef'", r.getCanonicalCommand());
     }
 
     @Test
     void testAllowedPipelinePasses() {
         GateResult r = gate.validate("ps -ef | grep nginx");
         assertTrue(r.isAllowed());
-        assertEquals("ps '-ef' | grep 'nginx'", r.getCanonicalCommand());
+        assertEquals("'ps' '-ef' | 'grep' 'nginx'", r.getCanonicalCommand());
     }
 
     @Test
     void testQuotedArgumentPreserved() {
-        GateResult r = gate.validate("grep 'hello world'");
+        GateResult r = gate.validate("'grep' 'hello world'");
         assertTrue(r.isAllowed());
-        assertEquals("grep 'hello world'", r.getCanonicalCommand());
+        assertEquals("'grep' 'hello world'", r.getCanonicalCommand());
     }
 
     // ---------- 应拒绝（REJECT）：已知绕过样本 ----------
@@ -179,7 +179,7 @@ class CommandGateTest {
     void testGrepNormalFlagStillPasses() {
         GateResult r = gate.validate("grep -i nginx");
         assertTrue(r.isAllowed());
-        assertEquals("grep '-i' 'nginx'", r.getCanonicalCommand());
+        assertEquals("'grep' '-i' 'nginx'", r.getCanonicalCommand());
     }
 
     // ---------- 参数策略补全：写经开关 / 写经位置参数 / 长驻 ----------
@@ -203,7 +203,15 @@ class CommandGateTest {
     void testDateFormatAllowed() {
         GateResult r = gate.validate("date +%Y");
         assertTrue(r.isAllowed());
-        assertEquals("date '+%Y'", r.getCanonicalCommand());
+        assertEquals("'date' '+%Y'", r.getCanonicalCommand());
+    }
+
+    @Test
+    void testDatePositionalClockSetRejected() {
+        // BusyBox/BSD：date <时间> 经位置参数改时钟；位置参数仅允许 +FORMAT
+        GateResult r = gate.validate("date 010101012030");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
     }
 
     @Test
@@ -218,14 +226,14 @@ class CommandGateTest {
     void testHostnameReadFlagAllowed() {
         GateResult r = gate.validate("hostname -I");
         assertTrue(r.isAllowed());
-        assertEquals("hostname '-I'", r.getCanonicalCommand());
+        assertEquals("'hostname' '-I'", r.getCanonicalCommand());
     }
 
     @Test
     void testHostnamePlainAllowed() {
-        GateResult r = gate.validate("hostname");
+        GateResult r = gate.validate("'hostname'");
         assertTrue(r.isAllowed());
-        assertEquals("hostname", r.getCanonicalCommand());
+        assertEquals("'hostname'", r.getCanonicalCommand());
     }
 
     @Test
@@ -239,7 +247,7 @@ class CommandGateTest {
     void testTailNormalAllowed() {
         GateResult r = gate.validate("tail -n 100 /var/log/app.log");
         assertTrue(r.isAllowed());
-        assertEquals("tail '-n' '100' '/var/log/app.log'", r.getCanonicalCommand());
+        assertEquals("'tail' '-n' '100' '/var/log/app.log'", r.getCanonicalCommand());
     }
 
     @Test

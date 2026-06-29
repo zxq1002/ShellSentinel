@@ -158,7 +158,7 @@ date whoami id hostname netstat ss cut tr sort echo printf
 |------|------|------|
 | `grep` | 禁 `-f` / `--file`、`-P` / `--perl-regexp` | 读可控模式文件；PCRE 易 ReDoS |
 | `sort` | 禁 `-o` / `--output` | 写文件 |
-| `date` | 禁 `-s` / `--set` | 修改系统时间 |
+| `date` | 禁 `-s` / `--set`；位置参数仅允许 `+FORMAT` | 防 `date <时间>` 在 BusyBox/BSD 下改时钟 |
 | `hostname` | 位置参数数 0；禁 `-F` / `--file`、`-b` / `--boot` | 任何位置参数都会修改主机名 |
 | `tail` | 禁 `-f` / `-F` / `--follow` / `--retry` | 长驻进程（DoS） |
 
