@@ -6,74 +6,58 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 单个命令的参数策略。
+ * 单个命令的参数策略（<b>开关白名单</b>模型）。
  * <p>
- * 即便命令本身只读，其某些用法仍具备写文件 / 改系统状态 / 长驻 / ReDoS 等能力：
+ * 安全姿态：只放行<b>显式枚举的安全开关</b>，未知开关一律拒绝。这从根上消除了
+ * 「黑名单漏列危险开关」与「GNU getopt_long 无歧义缩写绕过」两类问题——例如
+ * {@code sort --compress-program}（任意程序执行）、{@code --out}（{@code --output} 的缩写）、
+ * {@code wc --files0-from}（读任意文件）等，只要不在允许集就被拒。
  * </p>
- * <ul>
- *     <li><b>危险开关</b>：如 {@code grep -f}、{@code grep -P}、{@code sort -o}、{@code date -s}。
- *         短选项按字符逐个检查（{@code -if} 含 {@code f}）；长选项取 {@code =} 之前的名字。</li>
- *     <li><b>写经位置参数</b>：如 {@code hostname <name>} 修改主机名。通过位置参数上限拦截
- *         （{@code maxPositional}，-1 表示不限）。</li>
- * </ul>
  * <p>
- * 注意：位置参数计数对「带独立取值的开关」并不精确（如 {@code cmd -x VALUE} 中的 VALUE 会被计为
- * 位置参数）。因此 {@code maxPositional} 只用于「相关只读开关均不带独立取值」的命令（如 hostname）。
+ * 短选项按字符逐个校验（{@code -if} 拆为 {@code i} 和 {@code f}，两者都须在允许集）；
+ * 长选项取 {@code =} 之前的名字精确匹配（缩写因非精确名而被拒）。位置参数（通常是文件路径，
+ * 属读取）默认放行，可用 {@code maxPositional} 限制（如 {@code hostname} 的位置参数会改主机名，限为 0）。
+ * </p>
+ * <p>
+ * 已知保守取舍（fail-closed，只会过度拒绝、不会漏放）：① 带独立取值的开关，其取值被计为位置参数
+ * （如 {@code -e -P} 中的 {@code -P} 会被当作开关校验而拒）；② 缩写一律需写全名。
  * </p>
  */
 public final class ArgPolicy {
 
-    /** 不设任何限制的空策略 */
-    public static final ArgPolicy PERMISSIVE = new ArgPolicy(
-            Collections.<Character>emptySet(), Collections.<String>emptySet(), -1, null);
+    /** 不允许任何开关（位置参数仍放行）。命令未显式配置策略时的 fail-closed 默认。 */
+    public static final ArgPolicy NO_FLAGS = new ArgPolicy(
+            Collections.<Character>emptySet(), Collections.<String>emptySet(), -1);
 
-    private final Set<Character> deniedShortFlags;
-    private final Set<String> deniedLongFlags;
+    private final Set<Character> allowedShortFlags;
+    private final Set<String> allowedLongFlags;
     private final int maxPositional;
-    /** 位置参数必须以此前缀开头（null 表示无约束）。用于 date 仅允许 +FORMAT 读取，拦截 date <时间> 改时钟 */
-    private final String requiredPositionalPrefix;
 
-    private ArgPolicy(Set<Character> deniedShortFlags, Set<String> deniedLongFlags,
-                      int maxPositional, String requiredPositionalPrefix) {
-        this.deniedShortFlags = deniedShortFlags;
-        this.deniedLongFlags = deniedLongFlags;
+    private ArgPolicy(Set<Character> allowedShortFlags, Set<String> allowedLongFlags, int maxPositional) {
+        this.allowedShortFlags = allowedShortFlags;
+        this.allowedLongFlags = allowedLongFlags;
         this.maxPositional = maxPositional;
-        this.requiredPositionalPrefix = requiredPositionalPrefix;
     }
 
     /**
-     * 构造仅按开关拦截的策略（位置参数不限）。
+     * 构造开关白名单策略（位置参数不限）。
      *
-     * @param deniedShortFlags 禁用的短选项字符（如 'f'、'o'、'P'）
-     * @param deniedLongFlags  禁用的长选项名（不含前导 {@code --}，如 "file"、"output"）
+     * @param allowedShortFlags 允许的短选项字符（如 'l'、'a'、'n'）
+     * @param allowedLongFlags  允许的长选项名（不含前导 {@code --}，如 "lines"、"all"）
      */
-    public static ArgPolicy deny(Set<Character> deniedShortFlags, Set<String> deniedLongFlags) {
-        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), -1, null);
+    public static ArgPolicy allow(Set<Character> allowedShortFlags, Set<String> allowedLongFlags) {
+        return new ArgPolicy(new HashSet<>(allowedShortFlags), new HashSet<>(allowedLongFlags), -1);
     }
 
     /**
-     * 构造带位置参数上限的策略。
+     * 构造带位置参数上限的开关白名单策略。
      *
-     * @param deniedShortFlags 禁用的短选项字符
-     * @param deniedLongFlags  禁用的长选项名
-     * @param maxPositional    位置参数上限（-1 表示不限）
+     * @param allowedShortFlags 允许的短选项字符
+     * @param allowedLongFlags  允许的长选项名
+     * @param maxPositional     位置参数上限（-1 表示不限）
      */
-    public static ArgPolicy deny(Set<Character> deniedShortFlags, Set<String> deniedLongFlags, int maxPositional) {
-        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), maxPositional, null);
-    }
-
-    /**
-     * 构造要求位置参数带指定前缀的策略（位置参数不限数量）。
-     *
-     * @param deniedShortFlags         禁用的短选项字符
-     * @param deniedLongFlags          禁用的长选项名
-     * @param requiredPositionalPrefix 位置参数必须以此前缀开头（如 date 的 "+"）
-     */
-    public static ArgPolicy denyPositionalsWithoutPrefix(Set<Character> deniedShortFlags,
-                                                         Set<String> deniedLongFlags,
-                                                         String requiredPositionalPrefix) {
-        return new ArgPolicy(new HashSet<>(deniedShortFlags), new HashSet<>(deniedLongFlags), -1,
-                requiredPositionalPrefix);
+    public static ArgPolicy allow(Set<Character> allowedShortFlags, Set<String> allowedLongFlags, int maxPositional) {
+        return new ArgPolicy(new HashSet<>(allowedShortFlags), new HashSet<>(allowedLongFlags), maxPositional);
     }
 
     /**
@@ -85,42 +69,34 @@ public final class ArgPolicy {
     public String firstViolation(List<String> args) {
         int positional = 0;
         for (String arg : args) {
-            if (isFlag(arg)) {
-                if (isFlagDenied(arg)) {
+            if (arg.equals("--")) {
+                // 选项终止符，无害
+                continue;
+            }
+            if (arg.startsWith("--")) {
+                String name = arg.substring(2);
+                int eq = name.indexOf('=');
+                if (eq >= 0) {
+                    name = name.substring(0, eq);
+                }
+                if (!allowedLongFlags.contains(name)) {
                     return arg;
+                }
+            } else if (arg.startsWith("-") && arg.length() > 1) {
+                // 短选项簇：逐字符须在允许集
+                for (int i = 1; i < arg.length(); i++) {
+                    if (!allowedShortFlags.contains(arg.charAt(i))) {
+                        return arg;
+                    }
                 }
             } else {
+                // 位置参数（含单独的 '-' stdin 标记）
                 positional++;
                 if (maxPositional >= 0 && positional > maxPositional) {
-                    return arg;
-                }
-                if (requiredPositionalPrefix != null && !arg.startsWith(requiredPositionalPrefix)) {
                     return arg;
                 }
             }
         }
         return null;
-    }
-
-    private boolean isFlag(String arg) {
-        return arg.startsWith("-") && arg.length() > 1;
-    }
-
-    private boolean isFlagDenied(String arg) {
-        if (arg.startsWith("--")) {
-            String name = arg.substring(2);
-            int eq = name.indexOf('=');
-            if (eq >= 0) {
-                name = name.substring(0, eq);
-            }
-            return deniedLongFlags.contains(name);
-        }
-        // 短选项簇：逐字符检查
-        for (int i = 1; i < arg.length(); i++) {
-            if (deniedShortFlags.contains(arg.charAt(i))) {
-                return true;
-            }
-        }
-        return false;
     }
 }

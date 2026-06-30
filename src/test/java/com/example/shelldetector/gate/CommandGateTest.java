@@ -153,23 +153,26 @@ class CommandGateTest {
     }
 
     @Test
-    void testSortOutputFlagRejected() {
-        // sort -o 写文件
-        GateResult r = gate.validate("sort -o /etc/passwd /etc/hosts");
-        assertFalse(r.isAllowed());
-        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    void testSortRemovedFromAllowlist() {
+        // sort 含 --compress-program（任意程序执行）等危险开关，已整体移出白名单
+        assertEquals(RejectReason.COMMAND_NOT_ALLOWED,
+                gate.validate("sort -u /etc/hosts").getReason());
+        assertEquals(RejectReason.COMMAND_NOT_ALLOWED,
+                gate.validate("sort --compress-program=sh /etc/hosts").getReason());
     }
 
     @Test
-    void testSortLongOutputFlagRejected() {
-        GateResult r = gate.validate("sort --output=/etc/passwd /etc/hosts");
-        assertFalse(r.isAllowed());
-        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    void testDateRemovedFromAllowlist() {
+        // date 含 -s 改时钟、-f 读任意文件，已整体移出白名单
+        assertEquals(RejectReason.COMMAND_NOT_ALLOWED,
+                gate.validate("date +%Y").getReason());
+        assertEquals(RejectReason.COMMAND_NOT_ALLOWED,
+                gate.validate("date -f /etc/shadow").getReason());
     }
 
     @Test
-    void testCombinedShortFlagWithDeniedRejected() {
-        // -if 含被禁的 f
+    void testCombinedShortFlagWithUnknownRejected() {
+        // -if：i 在 grep 白名单，f 不在 -> 拒
         GateResult r = gate.validate("grep -if /tmp/p x");
         assertFalse(r.isAllowed());
         assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
@@ -182,36 +185,29 @@ class CommandGateTest {
         assertEquals("'grep' '-i' 'nginx'", r.getCanonicalCommand());
     }
 
-    // ---------- 参数策略补全：写经开关 / 写经位置参数 / 长驻 ----------
+    // ---------- 开关白名单：缩写绕过 / 未知开关 / 读文件开关一律拒 ----------
 
     @Test
-    void testDateSetFlagRejected() {
-        // date -s 修改系统时间（写）
-        GateResult r = gate.validate("date -s 2020-01-01");
-        assertFalse(r.isAllowed());
-        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    void testGrepLongAbbreviationRejected() {
+        // GNU getopt_long 缩写：--pe -> --perl-regexp。白名单只认精确安全名，缩写不在 -> 拒
+        assertEquals(RejectReason.ARG_NOT_ALLOWED,
+                gate.validate("grep --pe nginx file").getReason());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED,
+                gate.validate("grep --fil=/etc/shadow x").getReason());
     }
 
     @Test
-    void testDateLongSetRejected() {
-        GateResult r = gate.validate("date --set=2020-01-01");
-        assertFalse(r.isAllowed());
-        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    void testGrepUnknownLongFlagRejected() {
+        assertEquals(RejectReason.ARG_NOT_ALLOWED,
+                gate.validate("grep --frobnicate x").getReason());
     }
 
     @Test
-    void testDateFormatAllowed() {
-        GateResult r = gate.validate("date +%Y");
-        assertTrue(r.isAllowed());
-        assertEquals("'date' '+%Y'", r.getCanonicalCommand());
-    }
-
-    @Test
-    void testDatePositionalClockSetRejected() {
-        // BusyBox/BSD：date <时间> 经位置参数改时钟；位置参数仅允许 +FORMAT
-        GateResult r = gate.validate("date 010101012030");
-        assertFalse(r.isAllowed());
-        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    void testWcFiles0FromRejected() {
+        // wc --files0-from 读任意文件，不在白名单 -> 拒
+        assertEquals(RejectReason.ARG_NOT_ALLOWED,
+                gate.validate("wc --files0-from=/etc/shadow").getReason());
+        assertTrue(gate.validate("wc -l /etc/hosts").isAllowed());
     }
 
     @Test

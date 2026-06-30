@@ -34,41 +34,93 @@ public final class CommandGate {
      */
     private static final String FORBIDDEN_BARE = ";&$`()<>{}*?!~\\[]#\n\r";
 
-    /** 默认只读命令白名单 */
+    /**
+     * 默认只读命令白名单。
+     * <p>有意不含 {@code sort}（{@code --compress-program} 任意程序执行、{@code -o} 写文件）与
+     * {@code date}（{@code -s} 改时钟、{@code -f} 读任意文件）——其危险开关无法用开关白名单安全收敛到
+     * 验证场景的收益，按需可在评审后以严格开关白名单单独放回。</p>
+     */
     private static final Set<String> DEFAULT_ALLOWED = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "ps", "grep", "ls", "cat", "head", "tail", "wc", "stat",
-            "df", "du", "free", "uptime", "date", "whoami", "id", "hostname",
-            "netstat", "ss", "cut", "tr", "sort", "echo", "printf"
+            "df", "du", "free", "uptime", "whoami", "id", "hostname",
+            "netstat", "ss", "cut", "tr", "echo", "printf"
     )));
 
-    /** 默认参数策略：拦截白名单命令的危险开关 */
+    /**
+     * 默认参数策略：<b>每命令一份开关白名单</b>，只放行已枚举的安全开关，未知开关一律拒。
+     * 未在此表的命令使用 {@link ArgPolicy#NO_FLAGS}（fail-closed，只放行位置参数）。
+     */
     private static final Map<String, ArgPolicy> DEFAULT_ARG_POLICIES = buildDefaultArgPolicies();
+
+    private static Set<Character> chars(String s) {
+        Set<Character> set = new HashSet<>();
+        for (int i = 0; i < s.length(); i++) {
+            set.add(s.charAt(i));
+        }
+        return set;
+    }
+
+    private static Set<String> names(String... ns) {
+        return new HashSet<>(Arrays.asList(ns));
+    }
 
     private static Map<String, ArgPolicy> buildDefaultArgPolicies() {
         Map<String, ArgPolicy> map = new HashMap<>();
-        // grep -f（读可控模式文件）、-P（PCRE，易 ReDoS）
-        map.put("grep", ArgPolicy.deny(
-                new HashSet<>(Arrays.asList('f', 'P')),
-                new HashSet<>(Arrays.asList("file", "perl-regexp"))));
-        // sort -o（写文件）
-        map.put("sort", ArgPolicy.deny(
-                new HashSet<>(Arrays.asList('o')),
-                new HashSet<>(Arrays.asList("output"))));
-        // date：-s/--set 改系统时间；BusyBox/BSD 下裸位置参数（date MMDDhhmm）同样改时钟，
-        // 故位置参数仅允许 +FORMAT 读取形式
-        map.put("date", ArgPolicy.denyPositionalsWithoutPrefix(
-                new HashSet<>(Arrays.asList('s')),
-                new HashSet<>(Arrays.asList("set")),
-                "+"));
-        // hostname：-F/--file 从文件设置；任何位置参数都会修改主机名 -> 位置参数上限 0
-        map.put("hostname", ArgPolicy.deny(
-                new HashSet<>(Arrays.asList('F', 'b')),
-                new HashSet<>(Arrays.asList("file", "boot")),
-                0));
-        // tail -f/-F（长驻，DoS）
-        map.put("tail", ArgPolicy.deny(
-                new HashSet<>(Arrays.asList('f', 'F')),
-                new HashSet<>(Arrays.asList("follow", "retry"))));
+        // 进程查看（无写/执行开关）
+        map.put("ps", ArgPolicy.allow(chars("aAefuxwHljyoOpCUGtLTScnrsdNm"),
+                names("sort", "no-headers", "headers", "forest", "cols", "columns", "width")));
+        // grep：放行常用只读开关；不含 f(读模式文件)/P(PCRE ReDoS)，缩写因非精确名被拒
+        map.put("grep", ArgPolicy.allow(chars("ivcnHhlLowxEFerRsqabABCmz"),
+                names("ignore-case", "invert-match", "count", "line-number", "with-filename",
+                        "no-filename", "files-with-matches", "files-without-match", "only-matching",
+                        "word-regexp", "line-regexp", "extended-regexp", "fixed-strings", "regexp",
+                        "recursive", "include", "exclude", "exclude-dir", "color", "colour",
+                        "max-count", "after-context", "before-context", "context", "quiet", "silent")));
+        map.put("ls", ArgPolicy.allow(chars("aAlhtrSRdinogGcufFpQ1mxCb"),
+                names("all", "almost-all", "human-readable", "sort", "reverse", "recursive",
+                        "directory", "inode", "color", "classify", "group-directories-first", "time")));
+        map.put("cat", ArgPolicy.allow(chars("AbenstuvET"),
+                names("number", "number-nonblank", "show-all", "show-ends", "show-tabs",
+                        "squeeze-blank", "show-nonprinting")));
+        map.put("head", ArgPolicy.allow(chars("cnqvz"),
+                names("bytes", "lines", "quiet", "silent", "verbose", "zero-terminated")));
+        // tail：放行只读分页开关；不含 f/F(长驻)
+        map.put("tail", ArgPolicy.allow(chars("cnqvz"),
+                names("bytes", "lines", "quiet", "silent", "verbose", "zero-terminated")));
+        // wc：不含 --files0-from(读任意文件)
+        map.put("wc", ArgPolicy.allow(chars("cmlwL"),
+                names("bytes", "chars", "lines", "words", "max-line-length")));
+        map.put("stat", ArgPolicy.allow(chars("Lfct"),
+                names("dereference", "file-system", "format", "printf", "terse", "cached")));
+        map.put("df", ArgPolicy.allow(chars("ahHiklPTtxB"),
+                names("all", "human-readable", "inodes", "local", "portability", "print-type",
+                        "type", "exclude-type", "block-size", "total")));
+        map.put("du", ArgPolicy.allow(chars("achHkmsxbBdLSt"),
+                names("all", "human-readable", "summarize", "max-depth", "total", "bytes",
+                        "block-size", "one-file-system", "threshold")));
+        map.put("free", ArgPolicy.allow(chars("bkmghstwl"),
+                names("bytes", "kilo", "mega", "giga", "human", "total", "wide")));
+        map.put("uptime", ArgPolicy.allow(chars("psV"), names("pretty", "since")));
+        map.put("whoami", ArgPolicy.allow(chars(""), names(), 0));
+        map.put("id", ArgPolicy.allow(chars("agGnruzZ"),
+                names("all", "group", "groups", "name", "real", "user", "zero")));
+        // hostname：只放行读取类开关；不含 F(从文件设置)/b(boot)；任何位置参数会改主机名 -> 上限 0
+        map.put("hostname", ArgPolicy.allow(chars("IidfsAay"),
+                names("fqdn", "short", "domain", "ip-address", "all-ip-addresses", "all-fqdns",
+                        "alias", "nis"), 0));
+        map.put("netstat", ArgPolicy.allow(chars("atunlprsecioWxwg"),
+                names("all", "tcp", "udp", "numeric", "listening", "programs", "route",
+                        "statistics", "extend", "continuous", "interfaces")));
+        map.put("ss", ArgPolicy.allow(chars("atunlprseiomxw46"),
+                names("all", "tcp", "udp", "numeric", "listening", "processes", "resolve",
+                        "summary", "extended", "info", "memory")));
+        map.put("cut", ArgPolicy.allow(chars("bcdfszn"),
+                names("bytes", "characters", "delimiter", "fields", "only-delimited",
+                        "complement", "output-delimiter", "zero-terminated")));
+        map.put("tr", ArgPolicy.allow(chars("cdstC"),
+                names("complement", "delete", "squeeze-repeats", "truncate-set1")));
+        map.put("echo", ArgPolicy.allow(chars("neE"), names()));
+        map.put("printf", ArgPolicy.allow(chars(""), names()));
         return Collections.unmodifiableMap(map);
     }
 
@@ -274,7 +326,7 @@ public final class CommandGate {
             List<String> args = seg.subList(1, seg.size());
 
             if (allowedCommands.contains(command)) {
-                ArgPolicy policy = argPolicies.getOrDefault(command, ArgPolicy.PERMISSIVE);
+                ArgPolicy policy = argPolicies.getOrDefault(command, ArgPolicy.NO_FLAGS);
                 String violation = policy.firstViolation(args);
                 if (violation != null) {
                     return GateResult.reject(RejectReason.ARG_NOT_ALLOWED, command + " " + violation);

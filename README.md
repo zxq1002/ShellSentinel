@@ -5,7 +5,8 @@
 > **定位与边界（务必先读）**
 > - 本库是**安全护栏**，用于在 `sh -c` 执行前拦截写操作与任意命令执行（RCE），适配「凭证可能泄露、仅需放行只读查询」的对抗场景。
 > - **不覆盖**：数据读取/外泄（纯读命令仍可读敏感数据，归 RBAC 与网络策略）、凭证安全、资源型 DoS（超大输出/长驻进程，归 exec 超时与容器 cgroup 限额）。
-> - **架构红线**：调用方必须执行网关返回的**规范串**，绝不能把原始输入串回灌给 `sh -c`。
+> - **架构红线①**：调用方必须执行网关返回的**规范串**，绝不能把原始输入串回灌给 `sh -c`。
+> - **架构红线②**：规范串必须作为**独立的 argv 元素**传给 shell（如 `execve("/bin/sh", ["sh","-c", canonical])`），**绝不能**把它字符串插值进 `sh -c "<canonical>"`。否则外层 shell 会对规范串里单引号内的 `$( )`/反引号/`"` 再做一次解释 → RCE。正确：`new ProcessBuilder("/bin/sh","-c", canonical)`；错误：`sh -c "" + canonical + ""`。
 
 ## 支持的三大场景
 
@@ -143,24 +144,21 @@ if (r.isAllowed()) {
 
 ```
 ps grep ls cat head tail wc stat df du free uptime
-date whoami id hostname netstat ss cut tr sort echo printf
+whoami id hostname netstat ss cut tr echo printf
 ```
 
-> `uniq` 未纳入：其第二个位置参数是输出文件（写），无法可靠拦截；去重请用 `sort -u`。
+> **有意不含 `sort`、`date`**：二者含非显而易见的危险开关——`sort --compress-program=PROG`（任意程序执行）、`sort -o`（写文件）、`date -s`（改时钟）、`date -f`（读任意文件），用开关白名单收敛到验证场景收益不足。按需可在评审后以严格开关白名单单独放回。`uniq` 同样未纳入（第二位置参数是输出文件）。
 
 **有意不放行**：各类 shell 解释器（`sh/bash`）、`xargs/eval/exec/env`、`sudo/su`、写盘类（`tee/dd/tar`）、`find`、带命令逃逸的分页器与编辑器（`less/more/vi`）、带内嵌脚本的文本处理器（`awk/sed`）、脚本语言、网络与远程类、可写文件的下载工具等——它们不在白名单即被结构性拦截。
 
-### 参数策略
+### 参数策略（开关白名单）
 
-即便命令只读，某些开关仍危险，由 `ArgPolicy` 拦截：
+`ArgPolicy` 采用**开关白名单**：每个命令只放行**显式枚举的安全开关**，未知开关一律拒。这从根上消除了「黑名单漏列危险开关」与「GNU getopt_long 无歧义缩写绕过」两类问题——例如 `sort --compress-program`、`--out`（`--output` 缩写）、`grep --pe`（`--perl-regexp` 缩写）、`wc --files0-from`，只要不在允许集就被拒。
 
-| 命令 | 限制 | 原因 |
-|------|------|------|
-| `grep` | 禁 `-f` / `--file`、`-P` / `--perl-regexp` | 读可控模式文件；PCRE 易 ReDoS |
-| `sort` | 禁 `-o` / `--output` | 写文件 |
-| `date` | 禁 `-s` / `--set`；位置参数仅允许 `+FORMAT` | 防 `date <时间>` 在 BusyBox/BSD 下改时钟 |
-| `hostname` | 位置参数数 0；禁 `-F` / `--file`、`-b` / `--boot` | 任何位置参数都会修改主机名 |
-| `tail` | 禁 `-f` / `-F` / `--follow` / `--retry` | 长驻进程（DoS） |
+- 短选项逐字符校验（`-if` 拆为 `i`/`f`，都须在允许集）；长选项取 `=` 前的名字精确匹配（缩写因非精确名被拒）。
+- 位置参数（通常是文件路径，属读取）默认放行；`hostname` 例外（位置参数会改主机名，限为 0）。
+- 未在策略表中的命令使用 `NO_FLAGS`（fail-closed，只放行位置参数）。
+- 保守取舍（只过度拒绝、不漏放）：带独立取值的开关其取值被计为位置参数；缩写需写全名。具体安全开关清单见 `CommandGate.buildDefaultArgPolicies`，可在评审后扩充。
 
 ### 受信脚本执行（可选，默认关闭）
 
