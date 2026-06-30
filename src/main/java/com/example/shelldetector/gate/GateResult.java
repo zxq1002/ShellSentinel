@@ -34,8 +34,12 @@ public final class GateResult {
      * @param stages           管道各段（命令名 + 参数），用于审计
      */
     static GateResult allow(String canonicalCommand, List<List<String>> stages) {
+        List<List<String>> immutable = new java.util.ArrayList<>(stages.size());
+        for (List<String> stage : stages) {
+            immutable.add(Collections.unmodifiableList(new java.util.ArrayList<>(stage)));
+        }
         return new GateResult(true, canonicalCommand, null, null,
-                Collections.unmodifiableList(stages));
+                Collections.unmodifiableList(immutable));
     }
 
     /**

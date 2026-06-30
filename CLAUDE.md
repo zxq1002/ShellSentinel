@@ -15,6 +15,7 @@
 ## 不可违背的约束（红线）
 
 - **执行规范串，绝不回灌原始串给 `sh -c`**；本库自身不执行命令（`scripts/check-redline.sh` 在 CI 守护，库内禁 `Runtime.exec`/`ProcessBuilder`）。
+- **规范串必须作为独立 argv 传给 shell**（`ProcessBuilder("/bin/sh","-c", canonical)`），绝不能字符串插值进 `sh -c "<canonical>"`，否则外层 shell 二次解释 → RCE。
 - **安全关键的命令白名单与参数策略固化在受评审代码**；仅部署相关的脚本前缀与混沌命令走外部配置（`GateConfig`）。不要把 `sh`/`rm` 等加进只读白名单。
 - 危险命令（场景③）只能按**整条命令**登记，**绝不按命令名**放行。
 

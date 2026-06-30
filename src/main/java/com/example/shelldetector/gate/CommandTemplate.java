@@ -33,10 +33,8 @@ public final class CommandTemplate {
      */
     public static CommandTemplate of(String line) {
         List<TemplateToken> tks = new ArrayList<>();
-        for (String raw : line.trim().split("\\s+")) {
-            if (!raw.isEmpty()) {
-                tks.add(TemplateToken.parse(raw));
-            }
+        for (String raw : CommandTokenizer.tokenize(line)) {
+            tks.add(TemplateToken.parse(raw));
         }
         if (tks.isEmpty()) {
             throw new IllegalArgumentException("空命令模板");

@@ -70,6 +70,10 @@ public final class ScriptPattern {
             throw new IllegalArgumentException("脚本模式目录过于宽泛: " + glob);
         }
         String filePrefix = before.substring(slash + 1);
+        if (filePrefix.isEmpty() && suffix.isEmpty()) {
+            // 如 /usr/bin/*：前后缀皆空会匹配目录内任意文件，过于宽泛，拒绝
+            throw new IllegalArgumentException("脚本模式过于宽泛（需文件名前缀或后缀）: " + glob);
+        }
         return new ScriptPattern(dir, filePrefix, suffix);
     }
 
