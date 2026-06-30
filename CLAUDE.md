@@ -24,3 +24,9 @@
 - 门面：`ExecGuard`（`canonicalOrThrow` / `inspect`）；网关：`CommandGate.builder()...build()` 或 `GateConfig.fromFile(...)`；审计：`AuditSink` / `Slf4jAuditSink`。
 - 改动走 TDD（红→绿）；`mvn test` + `./scripts/check-redline.sh` 全绿后提交。在 `main` 上开发先建分支。
 - 详细设计与动因见 `README.md`。
+
+## 维护点
+
+- **开关白名单（`CommandGate.buildDefaultArgPolicies`）需持续维护**。`ArgPolicy` 是 default-deny 的「开关白名单」：每个只读命令只放行**显式枚举的安全开关**，未知开关一律拒（fail-closed）。现有清单按常见只读用法列出，**上生产前须由团队按实际验证/混沌命令过一遍并补充**——这是该模型的运维性质，不是缺陷。
+  - 新增/调整开关时务必确认其只读：警惕写文件（`-o`/`--output`）、执行外部程序（如 `sort --compress-program`）、读任意文件（`-f`/`--file`/`--files0-from`）、改系统状态（`date -s`、`hostname <name>`）、长驻/DoS（`tail -f`、`-S` 超大缓冲）等。带这类开关的命令应整体不放行（如已移除的 `sort`/`date`），或仅以严格白名单放行其只读开关。
+  - 长选项按精确名匹配（GNU 缩写如 `--out` 因非精确名被拒）；缩写需写全名——这是有意的 fail-closed 取舍。
