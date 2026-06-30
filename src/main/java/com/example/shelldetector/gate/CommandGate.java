@@ -127,19 +127,18 @@ public final class CommandGate {
         return Collections.unmodifiableMap(map);
     }
 
-    private final Set<String> allowedCommands;
-    private final Map<String, ArgPolicy> argPolicies;
-    /** 脚本执行许可：解释器命令名 -> 受信脚本路径模式 */
-    private final Map<String, List<ScriptPattern>> scriptRunners;
-    /** 混沌注入命令白名单 */
-    private final ChaosPolicy chaosPolicy;
+    /**
+     * 放行通道，按优先级排列。混沌通道在前：它是「整条命令」级别的显式登记，比按命令名匹配的
+     * 只读白名单更具体；其后是受信脚本通道与只读白名单通道。首个非弃权裁决决定该段。
+     */
+    private final List<SegmentPolicy> segmentPolicies;
 
     private CommandGate(Set<String> allowedCommands, Map<String, ArgPolicy> argPolicies,
                         Map<String, List<ScriptPattern>> scriptRunners, ChaosPolicy chaosPolicy) {
-        this.allowedCommands = allowedCommands;
-        this.argPolicies = argPolicies;
-        this.scriptRunners = scriptRunners;
-        this.chaosPolicy = chaosPolicy;
+        this.segmentPolicies = Collections.unmodifiableList(Arrays.asList(
+                new ChaosSegmentPolicy(chaosPolicy),
+                new ScriptRunnerSegmentPolicy(scriptRunners),
+                new AllowlistSegmentPolicy(allowedCommands, argPolicies)));
     }
 
     /**
@@ -319,47 +318,32 @@ public final class CommandGate {
             return GateResult.reject(RejectReason.EMPTY, null);
         }
 
-        // 逐段校验命令名 + 重建规范串
+        // 逐段经各放行通道裁决 + 重建规范串
         List<String> canonicalSegments = new ArrayList<>();
         for (List<String> seg : segments) {
             if (seg.isEmpty()) {
                 return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX, "empty segment");
             }
-            String command = seg.get(0);
-            List<String> args = seg.subList(1, seg.size());
 
-            if (allowedCommands.contains(command)) {
-                ArgPolicy policy = argPolicies.getOrDefault(command, ArgPolicy.NO_FLAGS);
-                String violation = policy.firstViolation(args);
-                if (violation != null) {
-                    return GateResult.reject(RejectReason.ARG_NOT_ALLOWED, command + " " + violation);
+            SegmentDecision decision = SegmentDecision.ABSTAIN;
+            for (SegmentPolicy policy : segmentPolicies) {
+                decision = policy.evaluate(seg);
+                if (decision.type() != SegmentDecision.Type.ABSTAIN) {
+                    break;
                 }
-            } else if (scriptRunners.containsKey(command)) {
-                // 脚本执行许可：首参数必须是匹配受信前缀的脚本路径，其余参数原样透传
-                if (args.isEmpty()) {
-                    return GateResult.reject(RejectReason.SCRIPT_NOT_ALLOWED, command + " (missing script)");
-                }
-                String script = args.get(0);
-                boolean matched = false;
-                for (ScriptPattern pattern : scriptRunners.get(command)) {
-                    if (pattern.matches(script)) {
-                        matched = true;
-                        break;
-                    }
-                }
-                if (!matched) {
-                    return GateResult.reject(RejectReason.SCRIPT_NOT_ALLOWED, command + " " + script);
-                }
-            } else if (chaosPolicy.matches(seg)) {
-                // 混沌注入：整条命令命中精确登记或模板，放行
-            } else {
-                return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, command);
+            }
+            if (decision.type() == SegmentDecision.Type.REJECT) {
+                return GateResult.reject(decision.reason(), decision.detail());
+            }
+            if (decision.type() == SegmentDecision.Type.ABSTAIN) {
+                // 未命中任何通道
+                return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, seg.get(0));
             }
 
             // 命令词同样转义：确立「每个 token 都被转义」的不变量，杜绝命令词含元字符时的注入
-            StringBuilder canonical = new StringBuilder(ShellQuoter.quote(command));
-            for (String arg : args) {
-                canonical.append(' ').append(ShellQuoter.quote(arg));
+            StringBuilder canonical = new StringBuilder(ShellQuoter.quote(seg.get(0)));
+            for (int i = 1; i < seg.size(); i++) {
+                canonical.append(' ').append(ShellQuoter.quote(seg.get(i)));
             }
             canonicalSegments.add(canonical.toString());
         }
