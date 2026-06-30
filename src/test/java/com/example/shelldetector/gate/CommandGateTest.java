@@ -135,6 +135,21 @@ class CommandGateTest {
     }
 
     @Test
+    void testNulInsideSingleQuoteRejected() {
+        // NUL 在引号内同样须拒：否则会进规范串，触达 exec 边界（IOException / C 串截断）
+        GateResult r = gate.validate("cat 'file" + (char) 0 + "x'");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
+    void testNulInsideDoubleQuoteRejected() {
+        GateResult r = gate.validate("cat \"file" + (char) 0 + "x\"");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
     void testCanonicalLengthCapRejected() {
         // 引号炸弹：raw≤1024，但每个单引号转义为 4 字符，规范串可达数 KB -> 设上限
         StringBuilder sb = new StringBuilder("echo \"");

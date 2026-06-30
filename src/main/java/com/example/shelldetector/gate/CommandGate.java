@@ -33,9 +33,9 @@ public final class CommandGate {
 
     /**
      * 裸字符（引号外）中被禁止的元字符。
-     * 注意：管道符 {@code |} 与空白单独处理，不在此集合。NUL 纳入以防触达 exec C 字符串边界被截断。
+     * 注意：管道符 {@code |} 与空白单独处理，不在此集合；NUL 在循环顶端无条件拦截（引号内外皆拒）。
      */
-    private static final String FORBIDDEN_BARE = "\u0000;&$`()<>{}*?!~\\[]#\n\r";
+    private static final String FORBIDDEN_BARE = ";&$`()<>{}*?!~\\[]#\n\r";
 
     /**
      * 默认只读命令白名单。
@@ -239,6 +239,12 @@ public final class CommandGate {
 
         for (int i = 0; i < raw.length(); i++) {
             char c = raw.charAt(i);
+
+            // NUL 无论引号内外一律拒：它会进规范串触达 exec C 字符串边界（IOException / 截断），
+            // 故在引号状态分派之前先拦
+            if (c == 0) {
+                return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX, "\\u0000");
+            }
 
             if (inSingle) {
                 if (c == '\'') {
