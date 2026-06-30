@@ -28,11 +28,14 @@ public final class CommandGate {
     /** 命令串长度上限 */
     private static final int MAX_LENGTH = 1024;
 
+    /** 规范串长度上限：raw 经逐参数转义后可膨胀（单引号 1→4 字符），设界以保护下游 */
+    private static final int MAX_CANONICAL_LENGTH = 2048;
+
     /**
      * 裸字符（引号外）中被禁止的元字符。
-     * 注意：管道符 {@code |} 与空白单独处理，不在此集合。
+     * 注意：管道符 {@code |} 与空白单独处理，不在此集合。NUL 纳入以防触达 exec C 字符串边界被截断。
      */
-    private static final String FORBIDDEN_BARE = ";&$`()<>{}*?!~\\[]#\n\r";
+    private static final String FORBIDDEN_BARE = "\u0000;&$`()<>{}*?!~\\[]#\n\r";
 
     /**
      * 默认只读命令白名单。
@@ -362,6 +365,9 @@ public final class CommandGate {
         }
 
         String canonical = String.join(" | ", canonicalSegments);
+        if (canonical.length() > MAX_CANONICAL_LENGTH) {
+            return GateResult.reject(RejectReason.TOO_LONG, "canonical length=" + canonical.length());
+        }
         return GateResult.allow(canonical, segments);
     }
 }

@@ -33,7 +33,7 @@ public final class ChaosPolicy {
     public static ChaosPolicy of(List<String> exactCommandLines, List<String> templateLines) {
         List<List<String>> exact = new ArrayList<>();
         for (String line : exactCommandLines) {
-            exact.add(tokenize(line));
+            exact.add(CommandTokenizer.tokenize(line));
         }
         List<CommandTemplate> tpls = new ArrayList<>();
         for (String line : templateLines) {
@@ -61,18 +61,4 @@ public final class ChaosPolicy {
         return false;
     }
 
-    /** 是否未配置任何混沌命令 */
-    public boolean isEmpty() {
-        return exactCommands.isEmpty() && templates.isEmpty();
-    }
-
-    private static List<String> tokenize(String line) {
-        List<String> tokens = new ArrayList<>();
-        for (String t : line.trim().split("\\s+")) {
-            if (!t.isEmpty()) {
-                tokens.add(t);
-            }
-        }
-        return tokens;
-    }
 }

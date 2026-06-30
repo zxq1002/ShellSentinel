@@ -115,6 +115,17 @@ class CommandGateChaosTest {
     }
 
     @Test
+    void testExactChaosCommandWithQuotedSpaceArgMatches() {
+        // 配置与输入须用同一套 quote-aware 分词，带空格/引号的混沌参数才能匹配
+        CommandGate g = CommandGate.builder()
+                .allowExactCommands(Arrays.asList("mytool --msg 'hello world'"))
+                .build();
+        GateResult r = g.validate("mytool --msg 'hello world'");
+        assertTrue(r.isAllowed());
+        assertEquals("'mytool' '--msg' 'hello world'", r.getCanonicalCommand());
+    }
+
+    @Test
     void testCommandWordWithMetacharIsQuotedInCanonical() {
         // 防御：即便运维误配了含元字符的命令词，攻击者借引号命中后，
         // 命令词在规范串中也必须被转义为字面量（不会被 shell 二次解释为命令分隔）

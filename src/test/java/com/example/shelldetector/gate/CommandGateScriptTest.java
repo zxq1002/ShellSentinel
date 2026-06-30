@@ -150,6 +150,13 @@ class CommandGateScriptTest {
                 () -> CommandGate.builder().allowShScript("/home/*/validate-*.sh"));
     }
 
+    @Test
+    void testBareDirGlobRejectedAtConfig() {
+        // /usr/bin/* 前后缀皆空，会匹配目录内任意文件 -> 配置期拒绝
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandGate.builder().allowShScript("/usr/bin/*"));
+    }
+
     // ---------- 默认网关不开启 sh ----------
 
     @Test

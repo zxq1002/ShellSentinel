@@ -39,4 +39,10 @@ class ShellQuoterTest {
     void testMetacharactersAreNeutralized() {
         assertEquals("'; rm -rf /'", ShellQuoter.quote("; rm -rf /"));
     }
+
+    @Test
+    void testNullThrows() {
+        // 安全转义唯一入口，对 null fail-loud 而非 NPE
+        assertThrows(IllegalArgumentException.class, () -> ShellQuoter.quote(null));
+    }
 }

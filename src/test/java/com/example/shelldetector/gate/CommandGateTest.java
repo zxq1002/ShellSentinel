@@ -127,6 +127,34 @@ class CommandGateTest {
         assertFalse(r.isAllowed());
     }
 
+    @Test
+    void testNulByteRejected() {
+        GateResult r = gate.validate("cat file\u0000x");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
+    void testCanonicalLengthCapRejected() {
+        // 引号炸弹：raw≤1024，但每个单引号转义为 4 字符，规范串可达数 KB -> 设上限
+        StringBuilder sb = new StringBuilder("echo \"");
+        for (int i = 0; i < 700; i++) {
+            sb.append('\'');
+        }
+        sb.append('"');
+        GateResult r = gate.validate(sb.toString());
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.TOO_LONG, r.getReason());
+    }
+
+    @Test
+    void testStagesAreDeepImmutable() {
+        GateResult r = gate.validate("ps -ef");
+        assertTrue(r.isAllowed());
+        assertThrows(UnsupportedOperationException.class,
+                () -> r.getStages().get(0).set(0, "rm"));
+    }
+
     // ---------- 参数策略：白名单命令的危险开关 ----------
 
     @Test

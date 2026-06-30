@@ -23,6 +23,9 @@ public final class ShellQuoter {
      * @return 单引号包裹后的安全串
      */
     public static String quote(String arg) {
+        if (arg == null) {
+            throw new IllegalArgumentException("不可对 null 转义");
+        }
         return "'" + arg.replace("'", "'\\''") + "'";
     }
 }
