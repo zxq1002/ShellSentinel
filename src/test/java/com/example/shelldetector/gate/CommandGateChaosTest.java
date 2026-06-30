@@ -115,6 +115,18 @@ class CommandGateChaosTest {
     }
 
     @Test
+    void testChaosTakesPrecedenceOverAllowlistArgPolicy() {
+        // tail 在只读白名单且其策略禁 -f；运维把 `tail -f ...` 显式登记为混沌命令 -> 应放行
+        CommandGate g = CommandGate.builder()
+                .allowExactCommands(Arrays.asList("tail -f /var/log/app.log"))
+                .build();
+        assertTrue(g.validate("tail -f /var/log/app.log").isAllowed());
+        // 未登记的 tail -f 仍被只读参数策略拒
+        assertEquals(RejectReason.ARG_NOT_ALLOWED,
+                g.validate("tail -f /other.log").getReason());
+    }
+
+    @Test
     void testExactChaosCommandWithQuotedSpaceArgMatches() {
         // 配置与输入须用同一套 quote-aware 分词，带空格/引号的混沌参数才能匹配
         CommandGate g = CommandGate.builder()
