@@ -21,7 +21,10 @@ import java.util.Properties;
  * </pre>
  * <p>
  * <b>设计取向</b>：仅脚本前缀走外部配置；安全关键的命令白名单与参数策略仍固化在受评审的
- * 代码中，避免有人通过配置悄悄放进 {@code sh}/{@code rm} 等高危命令。
+ * 代码中，避免有人通过配置悄悄放进 {@code sh}/{@code rm} 等高危命令。混沌命令
+ * （{@link #KEY_EXACT_COMMANDS}/{@link #KEY_COMMAND_TEMPLATES}）额外有 {@link ChaosPolicy}
+ * 的装配期黑名单兜底：{@code tokens[0]} 命中 {@code sh}/{@code bash}/{@code sudo} 等间接
+ * 执行器会在加载时直接抛异常（fail-fast），而非悄悄加载成功。
  * </p>
  */
 public final class GateConfig {

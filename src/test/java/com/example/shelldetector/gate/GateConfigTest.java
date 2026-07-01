@@ -85,4 +85,13 @@ class GateConfigTest {
         assertFalse(gate.validate("tc qdisc add dev eth0 root netem delay 99999ms").isAllowed());
         assertTrue(gate.validate("kill -CONT 999").isAllowed());
     }
+
+    @Test
+    void testExactCommandWithShellInterpreterFromPropertiesFailsFast() {
+        // 运维配置误登记 sh -c 整行：即便是精确整行匹配，tokens[0]==sh 也须在启动阶段就报错，
+        // 而不是悄悄加载成功、把 sh 的执行权限交给了配置文件
+        Properties p = new Properties();
+        p.setProperty("gate.exact.commands", "sh -c 'reboot'");
+        assertThrows(IllegalArgumentException.class, () -> GateConfig.fromProperties(p));
+    }
 }
