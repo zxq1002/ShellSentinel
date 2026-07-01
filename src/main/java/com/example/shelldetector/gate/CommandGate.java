@@ -251,10 +251,16 @@ public final class CommandGate {
         }
 
         public CommandGate build() {
+            // 深拷贝：Builder 可变且允许 build() 后继续复用追加配置（如按环境派生多个网关），
+            // 已交付的 CommandGate 必须是不可变快照，不能被后续对 Builder 的修改静默污染
+            Map<String, List<ScriptPattern>> runnersCopy = new HashMap<>();
+            for (Map.Entry<String, List<ScriptPattern>> entry : runners.entrySet()) {
+                runnersCopy.put(entry.getKey(), Collections.unmodifiableList(new ArrayList<>(entry.getValue())));
+            }
             return new CommandGate(
-                    Collections.unmodifiableSet(allowed),
-                    Collections.unmodifiableMap(policies),
-                    Collections.unmodifiableMap(runners),
+                    Collections.unmodifiableSet(new HashSet<>(allowed)),
+                    Collections.unmodifiableMap(new HashMap<>(policies)),
+                    Collections.unmodifiableMap(runnersCopy),
                     ChaosPolicy.of(exactCommands, commandTemplates, dangerousExactOverrides));
         }
     }
