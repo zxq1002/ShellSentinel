@@ -130,8 +130,8 @@ if (r.isAllowed()) {
 
 | 输入 | 结果 |
 |------|------|
-| `ps -ef \| grep nginx` | ✅ 放行 → `ps '-ef' \| grep 'nginx'` |
-| `df -h` | ✅ 放行 → `df '-h'` |
+| `ps -ef \| grep nginx` | ✅ 放行 → `'ps' '-ef' \| 'grep' 'nginx'` |
+| `df -h` | ✅ 放行 → `'df' '-h'` |
 | `rm -rf /` | ❌ COMMAND_NOT_ALLOWED |
 | `ps -ef \| sh` | ❌ COMMAND_NOT_ALLOWED（管道末段） |
 | `cat poke$(reboot)` | ❌ FORBIDDEN_SYNTAX |
@@ -191,7 +191,15 @@ CommandGate gate = CommandGate.builder()
 
 放行条件（全部满足）：命令为 `sh`；**首参数**是匹配受信前缀的**绝对路径**脚本（`*` 不跨 `/`、禁 `..`）；脚本之后的参数原样透传（仍逐参数转义）。因此 `sh -c '...'`、`sh /tmp/x.sh`、`echo x | sh`、路径穿越等全部被拒（`SCRIPT_NOT_ALLOWED`）。
 
-> ⚠️ **残余风险（务必落实）**：路径匹配是**词法**的，只保证"文件在受信目录、文件名合规"，**不保证文件内容是镜像原版**。在脚本目录可写的环境下，能写入 `/home/example/` 的攻击者可投放 `validate-evil.sh` 并执行。由于无法将该目录单独只读挂载，**必须用文件系统权限保证脚本目录不可被 exec 用户写入**（如目录归 root、容器以非 root 运行），这是替代只读挂载的信任锚点。同样需防软链替换。
+> ⚠️ **残余风险**：路径匹配是**词法**的，只保证"文件在受信目录、文件名合规"，**不保证文件内容是镜像原版**——网关本身无法验证文件内容，须靠下面的部署 checklist 兜底。
+
+**部署前须核对的 checklist（脚本目录信任锚点）**：
+
+- [ ] **目录不可写**：脚本目录（如 `/home/example/`）不可被 exec 用户写入（目录归 root 或专用账户、容器以非 root 身份运行该目录不可写），否则攻击者可投放 `validate-evil.sh` 并执行——这是替代只读挂载（`readOnlyRootFilesystem` 在本方案背景下无法启用）的信任锚点。
+- [ ] **拒软链**：脚本目录内的文件应为普通文件（`regular file`），防止攻击者用软链把文件名合规的路径指向目录外任意内容；`ScriptPattern` 只做词法匹配，不检查目标文件类型。
+- [ ] **目录 owner 链路检查**：不仅脚本目录本身，其上层每一级目录也需确认不可被 exec 用户写入或替换（否则可通过替换父目录间接达到同等效果）。
+- [ ] **PATH / 环境完整性**：网关只保证调用的是 `sh <受信脚本>`，脚本内部若再调用其它命令，其行为由脚本自身逻辑与容器 `PATH`/环境变量决定——须确保容器 `PATH` 未被污染（不含可写目录、不指向攻击者可控位置），否则脚本内部的相对调用可能被劫持。
+- [ ] **配置文件本身的访问控制**：`gate.sh.scripts`/`gate.exact.commands`/`gate.command.templates` 等外部配置文件是受信配置面，须防止被非授权人员修改（配置面被攻陷等价于运维权限被攻陷，超出本网关的威胁模型）。
 
 ### 混沌注入命令（可选，默认关闭）
 
@@ -213,6 +221,8 @@ gate.command.templates=tc qdisc add dev eth0 root netem delay {int:0..10000}ms; 
 
 > 仍是 default-deny：未登记的命令一律 `COMMAND_NOT_ALLOWED`。混沌命令与只读白名单、脚本许可三者并列、互不影响。
 
+**配置期护栏**：整行虽是精确登记，但若 `tokens[0]` 命中 `sh`/`bash`/`dash`/`ash`/`env`/`sudo`/`xargs`/`eval`/`exec`/`nohup` 等间接执行器/解释器，装配时（`ChaosPolicy.of`/`GateConfig.fromProperties`/`Builder.allowExactCommands`）会直接抛 `IllegalArgumentException`——因为这类整行虽形式合规，但等价于把该解释器的执行权限交给了配置文件。极少数确需登记此类命令的场景（如混沌演练需要 `sh <固定脚本>`），须由调用方在代码里显式调用 `Builder.allowDangerousCommand(String)` 声明例外（只豁免该字面量本身，且必须是代码变更、不能只改配置文件，确保这类例外经过评审）。
+
 ## 拒绝原因（RejectReason）
 
 | 原因 | 含义 |
@@ -227,7 +237,7 @@ gate.command.templates=tc qdisc add dev eth0 root netem delay {int:0..10000}ms; 
 
 ## 审计
 
-每次决策都会经 `AuditSink` 记录。默认 `Slf4jAuditSink`：放行记 INFO（含规范串），拒绝记 WARN（含原因与原始串），logger 名 `com.example.shelldetector.audit`。可注入自定义实现对接 SIEM：
+每次决策都会经 `AuditSink` 记录。默认 `Slf4jAuditSink`：放行记 INFO（含规范串），拒绝记 WARN（含原因与原始串），logger 名 `com.example.shelldetector.audit`。写日志前经 `AuditFormat` 净化（控制字符转义 + 长度上限）——拒绝结果的原始串正是"因含控制字符而被拒"的攻击者输入，若不净化直接落盘会被用来伪造日志行（CWE-117）。**自定义 `AuditSink` 实现同样建议复用 `AuditFormat.sanitize`（或等价处理）**，否则会重新引入同样的日志注入风险。可注入自定义实现对接 SIEM：
 
 ```java
 ExecGuard guard = new ExecGuard(CommandGate.createDefault(), (raw, result) -> {

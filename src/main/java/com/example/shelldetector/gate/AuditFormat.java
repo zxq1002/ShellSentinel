@@ -9,15 +9,19 @@ package com.example.shelldetector.gate;
  * 做 C0/DEL 控制字符转义，并加展示长度上限，防止攻击者用超长或含控制字符的原始串伪造/撑爆
  * 日志行。<b>只用于日志展示</b>，不影响 {@link GateResult} 里用于实际执行的规范串。
  * </p>
+ * <p>
+ * 公开给自定义 {@link AuditSink} 实现复用：写日志前对 rawCommand/canonicalCommand/detail
+ * 调用本类的 {@link #sanitize(String)}，避免重新引入同样的日志注入风险。
+ * </p>
  */
-final class AuditFormat {
+public final class AuditFormat {
 
     private static final int MAX_DISPLAY_LENGTH = 256;
 
     private AuditFormat() {
     }
 
-    static String sanitize(String s) {
+    public static String sanitize(String s) {
         if (s == null) {
             return null;
         }
