@@ -150,6 +150,43 @@ class CommandGateTest {
     }
 
     @Test
+    void testCrLfInsideSingleQuoteRejected() {
+        // 单引号内换行/回车若放行，会随规范串一起写入审计日志，伪造出额外的假日志行（CWE-117）
+        GateResult r = gate.validate("grep 'foo\nFAKE LOG LINE' file");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+
+        r = gate.validate("grep 'foo\rFAKE LOG LINE' file");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
+    void testCrLfInsideDoubleQuoteRejected() {
+        GateResult r = gate.validate("grep \"foo\nFAKE LOG LINE\" file");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+
+        r = gate.validate("grep \"foo\rFAKE LOG LINE\" file");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
+    void testVerticalTabInsideQuoteRejected() {
+        GateResult r = gate.validate("grep 'foobar' file");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
+    void testFormFeedInsideQuoteRejected() {
+        GateResult r = gate.validate("grep 'foobar' file");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.FORBIDDEN_SYNTAX, r.getReason());
+    }
+
+    @Test
     void testCanonicalLengthCapRejected() {
         // 引号炸弹：raw≤1024，但每个单引号转义为 4 字符，规范串可达数 KB -> 设上限
         StringBuilder sb = new StringBuilder("echo \"");

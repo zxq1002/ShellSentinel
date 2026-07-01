@@ -33,9 +33,36 @@ public final class CommandGate {
 
     /**
      * 裸字符（引号外）中被禁止的元字符。
-     * 注意：管道符 {@code |} 与空白单独处理，不在此集合；NUL 在循环顶端无条件拦截（引号内外皆拒）。
+     * 注意：管道符 {@code |} 与空白单独处理，不在此集合；NUL 与 {@code \n \r \v \f} 在循环顶端
+     * 无条件拦截（引号内外皆拒，见 {@link #isAlwaysForbiddenControl(char)}）。
      */
-    private static final String FORBIDDEN_BARE = ";&$`()<>{}*?!~\\[]#\n\r";
+    private static final String FORBIDDEN_BARE = ";&$`()<>{}*?!~\\[]#";
+
+    /**
+     * 无条件禁止的控制字符：NUL 会触达 exec C 字符串边界；{@code \n \r \v \f} 若被放行到规范串，
+     * 会随审计日志一并写入并伪造出额外的假日志行（CWE-117 日志注入）。两者都与引号状态无关。
+     */
+    private static boolean isAlwaysForbiddenControl(char c) {
+        return c == 0 || c == '\n' || c == '\r' || c == 0x0B || c == 0x0C;
+    }
+
+    /** 拒绝细节里的可读标签，避免把控制字符原样写进 detail（同样会污染审计日志）。 */
+    private static String controlCharLabel(char c) {
+        switch (c) {
+            case 0:
+                return "\\u0000";
+            case '\n':
+                return "\\n";
+            case '\r':
+                return "\\r";
+            case 0x0B:
+                return "\\u000b";
+            case 0x0C:
+                return "\\u000c";
+            default:
+                return String.valueOf(c);
+        }
+    }
 
     /**
      * 默认只读命令白名单。
@@ -240,10 +267,9 @@ public final class CommandGate {
         for (int i = 0; i < raw.length(); i++) {
             char c = raw.charAt(i);
 
-            // NUL 无论引号内外一律拒：它会进规范串触达 exec C 字符串边界（IOException / 截断），
-            // 故在引号状态分派之前先拦
-            if (c == 0) {
-                return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX, "\\u0000");
+            // NUL / \n\r\v\f 无论引号内外一律拒，故在引号状态分派之前先拦
+            if (isAlwaysForbiddenControl(c)) {
+                return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX, controlCharLabel(c));
             }
 
             if (inSingle) {

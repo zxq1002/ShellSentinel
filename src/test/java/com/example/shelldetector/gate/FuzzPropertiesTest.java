@@ -17,9 +17,10 @@ class FuzzPropertiesTest {
 
     private static final CommandGate GATE = CommandGate.createDefault();
 
-    /** 富字符池：字母数字 + 空白 + 管道 + 引号 + 各类元字符 */
+    /** 富字符池：字母数字 + 空白 + 管道 + 引号 + 各类元字符 + 控制字符 */
     private static final char[] POOL = (
-            "abcdefgABCDEFG0123 \t|'\";&$`()<>{}*?!~\\[]#-_/.=" + "\n").toCharArray();
+            "abcdefgABCDEFG0123 \t|'\";&$`()<>{}*?!~\\[]#-_/.="
+                    + "\n\r" + (char) 0x0B + (char) 0x0C).toCharArray();
 
     /** 可接受位置参数的命令子集（排除 hostname，其位置参数上限为 0） */
     private static final String[] POSITIONAL_OK = {
@@ -27,7 +28,7 @@ class FuzzPropertiesTest {
     };
 
     private static final char[] FORBIDDEN_BARE =
-            ";&$`()<>{}*?!~\\[]#\n\r".toCharArray();
+            (";&$`()<>{}*?!~\\[]#\n\r" + (char) 0x0B + (char) 0x0C).toCharArray();
 
     @Test
     void testValidateNeverThrowsAndIsDeterministic() {
@@ -101,7 +102,9 @@ class FuzzPropertiesTest {
             char c;
             do {
                 c = POOL[rnd.nextInt(POOL.length)];
-            } while (c == '\'');
+                // 单引号本身会提前闭合引号；\n\r\v\f 无论引号内外都被无条件拒绝（CWE-117 兜底），
+                // 两者都不属于"引号内原样保留"的内容范畴
+            } while (c == '\'' || c == '\n' || c == '\r' || c == 0x0B || c == 0x0C);
             sb.append(c);
         }
         return sb.toString();
