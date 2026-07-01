@@ -11,8 +11,11 @@ package com.example.shelldetector.gate;
  *         「目录 + 文件名前缀 + 文件名后缀」，{@code *} 不跨目录分隔符。</li>
  * </ul>
  * <p>
- * 匹配是纯词法的：要求绝对路径、无 {@code ..} 段。<b>注意</b>：词法匹配无法防止
- * 「同名文件被替换 / 软链」——在脚本目录可写的环境下，须用文件系统权限保证该目录不可被 exec 用户写入。
+ * 匹配是纯词法的：要求绝对路径、无 {@code ..} 段。含 {@code ..} 段的<b>模式</b>本身在
+ * {@link #of(String)} 装配期就会被拒绝——运行期 {@link #matches(String)} 对 {@code ..}
+ * 路径本就无条件不匹配，允许这样的模式加载成功只会得到一条永远生效不了的死配置。<b>注意</b>：
+ * 词法匹配无法防止「同名文件被替换 / 软链」——在脚本目录可写的环境下，须用文件系统权限保证
+ * 该目录不可被 exec 用户写入。
  * </p>
  */
 public final class ScriptPattern {
@@ -49,6 +52,11 @@ public final class ScriptPattern {
     public static ScriptPattern of(String glob) {
         if (glob == null || !glob.startsWith("/")) {
             throw new IllegalArgumentException("脚本模式必须为绝对路径: " + glob);
+        }
+        if (hasDotDotSegment(glob)) {
+            // matches() 运行期本就无条件拒绝含 .. 段的路径，因此含 .. 的模式永远不可能命中，
+            // 是一条"悄悄加载成功但永不生效"的死配置——装配期直接 fail-fast，方便运维发现拼写错误
+            throw new IllegalArgumentException("脚本模式不可包含 '..' 段: " + glob);
         }
         int first = glob.indexOf('*');
         if (first < 0) {
@@ -87,11 +95,8 @@ public final class ScriptPattern {
         if (path == null || !path.startsWith("/")) {
             return false;
         }
-        // 拒绝任何 .. 段，避免路径穿越
-        for (String segment : path.split("/")) {
-            if (segment.equals("..")) {
-                return false;
-            }
+        if (hasDotDotSegment(path)) {
+            return false;
         }
         if (exact) {
             return path.equals(exactPath);
@@ -103,5 +108,14 @@ public final class ScriptPattern {
                 && filename.startsWith(filePrefix)
                 && filename.endsWith(fileSuffix)
                 && filename.length() >= filePrefix.length() + fileSuffix.length();
+    }
+
+    private static boolean hasDotDotSegment(String path) {
+        for (String segment : path.split("/")) {
+            if (segment.equals("..")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

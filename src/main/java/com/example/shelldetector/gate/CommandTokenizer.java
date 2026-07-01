@@ -7,8 +7,9 @@ import java.util.List;
  * 受信配置命令行的 quote-aware 分词器。
  * <p>
  * 用于把<b>配置</b>里的混沌精确命令与模板行拆成 token，规则与 {@link CommandGate} 识别器对
- * <b>输入</b>的处理保持一致（识别单/双引号、去掉引号、按未被引号包裹的空白分词），从而保证
- * 「配置 token」与「输入 token」可正确比对——避免带空格/引号的参数永远匹配不上。
+ * <b>输入</b>的处理保持一致（识别单/双引号、去掉引号、只按未被引号包裹的 ASCII 空格/制表符
+ * 分词——不用 {@code Character.isWhitespace}，避免把 {@code CommandGate} 不识别为分隔符的
+ * 其它空白字符错当分隔符），从而保证「配置 token」与「输入 token」可正确比对。
  * </p>
  * <p>
  * 注意：这是<b>受信配置</b>专用，不强制 {@code FORBIDDEN_BARE}、不处理管道，因此模板里的
@@ -54,7 +55,7 @@ final class CommandTokenizer {
             } else if (c == '"') {
                 inDouble = true;
                 started = true;
-            } else if (Character.isWhitespace(c)) {
+            } else if (c == ' ' || c == '\t') {
                 if (started) {
                     tokens.add(token.toString());
                     token.setLength(0);
