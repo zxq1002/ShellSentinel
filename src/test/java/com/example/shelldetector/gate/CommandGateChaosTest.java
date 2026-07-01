@@ -148,4 +148,52 @@ class CommandGateChaosTest {
         assertTrue(r.isAllowed());
         assertEquals("'foo;bar' 'baz'", r.getCanonicalCommand());
     }
+
+    // ---------- 配置期高危字面量兜底：tokens[0] 是间接执行器/解释器一律拒 ----------
+
+    @Test
+    void testExactCommandWithShellInterpreterRejectedAtConfigTime() {
+        // 整行虽是精确登记，但 tokens[0]==sh 本身就是机器可判定的高危信号：
+        // 一旦命中就等价于把 sh 的执行权限交给了配置，必须在装配期 fail-fast
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowExactCommands(Arrays.asList("sh -c 'reboot'"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testExactCommandWithVariousInterpretersRejectedAtConfigTime() {
+        for (String dangerous : new String[]{
+                "bash -c id", "dash -c id", "ash -c id", "env sh -c id",
+                "sudo id", "xargs id", "eval id", "exec id", "nohup id"}) {
+            CommandGate.Builder builder = CommandGate.builder()
+                    .allowExactCommands(Arrays.asList(dangerous));
+            assertThrows(IllegalArgumentException.class, builder::build,
+                    "应在装配期拒绝: " + dangerous);
+        }
+    }
+
+    @Test
+    void testCommandTemplateWithShellInterpreterRejectedAtConfigTime() {
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("sh -c {enum:reboot|halt}"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testNonDangerousExactCommandsStillBuildFine() {
+        // 回归：正常混沌命令不受影响
+        assertDoesNotThrow(() -> CommandGate.builder()
+                .allowExactCommands(Arrays.asList("stress-ng --cpu 4 --timeout 60s"))
+                .build());
+    }
+
+    @Test
+    void testAllowDangerousCommandExplicitOverrideBypassesBlacklist() {
+        // 运维显式表达意图的旁路：仅放行该字面量本身，不放行 sh 的其它任意用法
+        CommandGate g = CommandGate.builder()
+                .allowDangerousCommand("sh /opt/chaos/kill-network.sh")
+                .build();
+        assertTrue(g.validate("sh /opt/chaos/kill-network.sh").isAllowed());
+        assertFalse(g.validate("sh -c 'reboot'").isAllowed());
+    }
 }

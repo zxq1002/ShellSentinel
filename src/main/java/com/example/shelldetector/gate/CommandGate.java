@@ -192,6 +192,7 @@ public final class CommandGate {
         private final Map<String, List<ScriptPattern>> runners = new HashMap<>();
         private final List<String> exactCommands = new ArrayList<>();
         private final List<String> commandTemplates = new ArrayList<>();
+        private final Set<String> dangerousExactOverrides = new HashSet<>();
 
         /**
          * 允许通过 {@code sh} 执行匹配给定前缀的受信脚本，如 {@code /home/example/validate-*.sh}。
@@ -233,12 +234,28 @@ public final class CommandGate {
             return this;
         }
 
+        /**
+         * 显式登记一条<b>精确整条</b>危险命令（{@code tokens[0]} 是 {@code sh}/{@code bash}/
+         * {@code sudo} 等间接执行器/解释器），跳过 {@link ChaosPolicy} 的装配期黑名单校验。
+         * <p>
+         * 仅为承载"运维显式表达意图"的极少数合法用例（如混沌演练需要通过 {@code sh <脚本>}
+         * 触发既定故障场景）而设；只豁免<b>该字面量本身</b>的黑名单检查，不放宽 {@code sh}
+         * 在其它任何配置项里的登记方式——调用方须在代码里显式调用本方法（而非仅改配置文件），
+         * 以确保这类例外经过评审。
+         * </p>
+         */
+        public Builder allowDangerousCommand(String commandLine) {
+            exactCommands.add(commandLine);
+            dangerousExactOverrides.add(commandLine);
+            return this;
+        }
+
         public CommandGate build() {
             return new CommandGate(
                     Collections.unmodifiableSet(allowed),
                     Collections.unmodifiableMap(policies),
                     Collections.unmodifiableMap(runners),
-                    ChaosPolicy.of(exactCommands, commandTemplates));
+                    ChaosPolicy.of(exactCommands, commandTemplates, dangerousExactOverrides));
         }
     }
 
