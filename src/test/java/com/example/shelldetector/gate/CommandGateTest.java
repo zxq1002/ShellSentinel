@@ -333,4 +333,14 @@ class CommandGateTest {
         assertFalse(r.isAllowed());
         assertEquals(RejectReason.COMMAND_NOT_ALLOWED, r.getReason());
     }
+
+    @Test
+    void testHostnameOptionsTerminatorBypass() {
+        // hostname 的 maxPositional=0；若 "--" 之后仍按"形似开关"校验而不计入位置参数，
+        // "-i" 会被当成短选项放行，但真正的 hostname 命令会把 "--" 之后一律当位置参数，
+        // 从而把主机名改成 "-i"（写操作），绕过只读限制
+        GateResult r = gate.validate("hostname -- -i");
+        assertFalse(r.isAllowed(), "应该拒绝通过选项终止符绕过的位置参数");
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+    }
 }
