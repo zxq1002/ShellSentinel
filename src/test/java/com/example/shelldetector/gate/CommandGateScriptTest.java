@@ -157,6 +157,20 @@ class CommandGateScriptTest {
                 () -> CommandGate.builder().allowShScript("/usr/bin/*"));
     }
 
+    @Test
+    void testDotDotSegmentInGlobRejectedAtConfig() {
+        // 含 .. 段的模式在运行期 matches() 里永远不可能命中（.. 段本就被拒绝）——
+        // 与其悄悄加载成"死配置"，不如在装配期 fail-fast，方便运维及时发现拼写错误
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandGate.builder().allowShScript("/home/example/../etc/validate-*.sh"));
+    }
+
+    @Test
+    void testDotDotSegmentInExactPathRejectedAtConfig() {
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandGate.builder().allowShScript("/home/example/../etc/validate.sh"));
+    }
+
     // ---------- 默认网关不开启 sh ----------
 
     @Test
