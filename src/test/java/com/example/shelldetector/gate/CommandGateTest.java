@@ -343,4 +343,32 @@ class CommandGateTest {
         assertFalse(r.isAllowed(), "应该拒绝通过选项终止符绕过的位置参数");
         assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
     }
+
+    // ---------- 拒绝 detail 应标明管道段序号（多段时），便于审计定位是哪一步失败 ----------
+
+    @Test
+    void testSingleSegmentRejectionDetailHasNoStagePrefix() {
+        // 回归：绝大多数场景是单段命令，不应引入 stage 前缀噪音，detail 格式与之前保持一致
+        GateResult r = gate.validate("grep -f /tmp/x");
+        assertFalse(r.isAllowed());
+        assertEquals("grep -f", r.getDetail());
+    }
+
+    @Test
+    void testPipelineRejectionDetailIncludesFailingStageIndex() {
+        // 三段管道，第二段（grep 用不允许的开关）应被拒绝；detail 需标明是第几段失败
+        // （1-based，便于运维/审计快速定位管道里具体哪一步出的问题）
+        GateResult r = gate.validate("ps -ef | grep -f /tmp/x | wc -l");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.ARG_NOT_ALLOWED, r.getReason());
+        assertEquals("stage 2/3: grep -f", r.getDetail());
+    }
+
+    @Test
+    void testPipelineCommandNotAllowedDetailIncludesFailingStageIndex() {
+        GateResult r = gate.validate("ps -ef | badcmd | wc -l");
+        assertFalse(r.isAllowed());
+        assertEquals(RejectReason.COMMAND_NOT_ALLOWED, r.getReason());
+        assertEquals("stage 2/3: badcmd", r.getDetail());
+    }
 }

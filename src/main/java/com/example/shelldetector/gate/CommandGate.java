@@ -375,9 +375,12 @@ public final class CommandGate {
 
         // 逐段经各放行通道裁决 + 重建规范串
         List<String> canonicalSegments = new ArrayList<>();
-        for (List<String> seg : segments) {
+        int stageCount = segments.size();
+        for (int stageIndex = 0; stageIndex < stageCount; stageIndex++) {
+            List<String> seg = segments.get(stageIndex);
             if (seg.isEmpty()) {
-                return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX, "empty segment");
+                return GateResult.reject(RejectReason.FORBIDDEN_SYNTAX,
+                        withStage(stageIndex, stageCount, "empty segment"));
             }
 
             SegmentDecision decision = SegmentDecision.ABSTAIN;
@@ -388,11 +391,12 @@ public final class CommandGate {
                 }
             }
             if (decision.type() == SegmentDecision.Type.REJECT) {
-                return GateResult.reject(decision.reason(), decision.detail());
+                return GateResult.reject(decision.reason(), withStage(stageIndex, stageCount, decision.detail()));
             }
             if (decision.type() == SegmentDecision.Type.ABSTAIN) {
                 // 未命中任何通道
-                return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED, seg.get(0));
+                return GateResult.reject(RejectReason.COMMAND_NOT_ALLOWED,
+                        withStage(stageIndex, stageCount, seg.get(0)));
             }
 
             // 命令词同样转义：确立「每个 token 都被转义」的不变量，杜绝命令词含元字符时的注入
@@ -408,5 +412,17 @@ public final class CommandGate {
             return GateResult.reject(RejectReason.TOO_LONG, "canonical length=" + canonical.length());
         }
         return GateResult.allow(canonical, segments);
+    }
+
+    /**
+     * 管道有多段时，在 detail 前追加 1-based 段序号（如 {@code stage 2/3: }），
+     * 便于运维/审计从拒绝日志直接定位管道里具体是哪一步失败；单段命令（绝大多数场景）
+     * 不加前缀，保持原有 detail 格式不变。
+     */
+    private static String withStage(int stageIndex, int stageCount, String detail) {
+        if (stageCount <= 1) {
+            return detail;
+        }
+        return "stage " + (stageIndex + 1) + "/" + stageCount + ": " + detail;
     }
 }
