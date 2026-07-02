@@ -26,4 +26,28 @@ class CommandTokenizerTest {
         String withVerticalTab = "a" + (char) 0x0B + "b";
         assertEquals(Arrays.asList(withVerticalTab), CommandTokenizer.tokenize(withVerticalTab));
     }
+
+    // ---------- 未闭合引号：装配期 fail-fast ----------
+
+    @Test
+    void testUnclosedSingleQuoteRejected() {
+        // 未闭合引号会让后续内容被静默吞入同一个 token（含本应作为分隔符的空格），
+        // 产出一条运维没料到的死配置——与 ScriptPattern.of 拒绝 '..' 段同一防御哲学：
+        // 与其悄悄加载成行为诡异的配置，不如装配期直接报错，让拼写错误尽早暴露
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandTokenizer.tokenize("stress-ng --cpu 'abc"));
+    }
+
+    @Test
+    void testUnclosedDoubleQuoteRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> CommandTokenizer.tokenize("stress-ng --cpu \"abc"));
+    }
+
+    @Test
+    void testClosedQuotesStillWork() {
+        // 回归：正常闭合引号不受影响
+        assertEquals(Arrays.asList("stress-ng", "--cpu", "abc def"),
+                CommandTokenizer.tokenize("stress-ng --cpu 'abc def'"));
+    }
 }

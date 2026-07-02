@@ -187,6 +187,24 @@ class CommandGateChaosTest {
                 .build());
     }
 
+    // ---------- 配置期高危字面量兜底：未闭合引号一律拒 ----------
+
+    @Test
+    void testExactCommandWithUnclosedQuoteRejectedAtConfigTime() {
+        // 未闭合引号会让 CommandTokenizer 静默吞掉后续内容，产出一条运维没料到的死配置；
+        // 与 ScriptPattern.of 拒绝 '..' 段同一防御哲学：装配期直接 fail-fast
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowExactCommands(Arrays.asList("stress-ng --cpu 'abc"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testCommandTemplateWithUnclosedQuoteRejectedAtConfigTime() {
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("tc qdisc add 'dev {int}"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
     @Test
     void testAllowDangerousCommandExplicitOverrideBypassesBlacklist() {
         // 运维显式表达意图的旁路：仅放行该字面量本身，不放行 sh 的其它任意用法
