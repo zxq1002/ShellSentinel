@@ -13,6 +13,15 @@
     <description>Linux Shell 高危指令检测类库 - Shell 安全哨兵</description>
 
     <properties>
+        <!--
+            最低支持 Java 8：库的编译目标与运行时最低版本均为 Java 8。
+            source/target=1.8 只约束语法级别，不检查是否误用了 Java 9+ 才有的 API——
+            用高于 8 的 JDK（如本机常见的 21）编译时，这类误用会静默通过，只有真正
+            用 JDK 8 编译/CI 才会暴露（曾因此导致 CI 编译失败）。用 JDK 9+ 本地构建时，
+            下方 jdk9-plus-strict-java8-api profile 会自动切到 javac 的 release=8 参数，
+            在本地就能提前拦下这类误用；CI 用真实 JDK 8 编译，profile 不生效，
+            source/target 直接生效（javac 8 本身不支持 release 参数，该参数是 JDK 9 引入的）。
+        -->
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -74,4 +83,31 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            用 JDK 9+ 本地构建时生效：release=8 强制 javac 按 Java 8 的 API 集合校验，
+            拦下"语法合法但 API 是 Java 9+ 才有"的误用（source/target 做不到这点，
+            因为它们只限制语言级别，编译器仍会用当前 JDK 的完整类库）。
+            javac 8 本身不支持 release 参数（该参数是 JDK 9 引入的），所以此 profile 按
+            JDK 版本自动禁用/启用，CI 的真实 JDK 8 构建不受影响。
+        -->
+        <profile>
+            <id>jdk9-plus-strict-java8-api</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration combine.self="override">
+                            <release>8</release>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
