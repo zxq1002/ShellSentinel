@@ -187,6 +187,42 @@ class CommandGateChaosTest {
                 .build());
     }
 
+    @Test
+    void testExactCommandWithAbsolutePathInterpreterRejectedAtConfigTime() {
+        // basename 归一化：黑名单只按裸名字符串精确比对时，'/bin/sh' 这种绝对路径写法
+        // 能无意（甚至有意）绕过 tokens[0]==sh 的检查——很多人写脚本习惯用绝对路径，
+        // 不需要任何恶意就能让"保留意见 A"要求的代码评审门槛形同虚设
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowExactCommands(Arrays.asList("/bin/sh -c 'reboot'"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testExactCommandWithRelativePathInterpreterRejectedAtConfigTime() {
+        for (String dangerous : new String[]{"./sh -c id", "../bin/bash -c id", "/usr/bin/env sh -c id"}) {
+            CommandGate.Builder builder = CommandGate.builder()
+                    .allowExactCommands(Arrays.asList(dangerous));
+            assertThrows(IllegalArgumentException.class, builder::build,
+                    "应在装配期拒绝: " + dangerous);
+        }
+    }
+
+    @Test
+    void testCommandTemplateWithAbsolutePathInterpreterRejectedAtConfigTime() {
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("/bin/sh -c {enum:reboot|halt}"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testNonDangerousCommandWithSlashInNameStillBuildsFine() {
+        // 回归：basename 归一化不应误伤"命令名本身含 /"但末段不是危险解释器名的合法登记
+        // （如某些工具确以路径形式注册，只要末段 basename 不在黑名单里）
+        assertDoesNotThrow(() -> CommandGate.builder()
+                .allowExactCommands(Arrays.asList("/opt/tools/stress-ng --cpu 4 --timeout 60s"))
+                .build());
+    }
+
     // ---------- 配置期高危字面量兜底：未闭合引号一律拒 ----------
 
     @Test

@@ -17,8 +17,10 @@ import java.util.Set;
  * <b>配置期护栏</b>：整行虽是精确登记，但若 {@code tokens[0]} 命中间接执行器/解释器
  * （{@code sh}/{@code bash}/... ），实质上等价于把该解释器的执行权限交给了配置文件，
  * 与"登记具体只读/故障注入命令"的初衷相悖。因此装配时对每条登记的 {@code tokens[0]}
- * 做机器化黑名单校验，命中即 fail-fast 抛异常；极少数确需登记此类命令的场景，
- * 由调用方通过 {@code allowDangerousExact} 显式声明例外（见
+ * 取 basename 后做机器化黑名单校验（{@code /bin/sh}、{@code ./sh} 等带路径写法归一化
+ * 为 {@code sh} 再比对，防止无需任何恶意、仅是路径书写习惯就绕过本护栏），命中即
+ * fail-fast 抛异常；极少数确需登记此类命令的场景，由调用方通过
+ * {@code allowDangerousExact} 显式声明例外（见
  * {@link CommandGate.Builder#allowDangerousCommand(String)}）。
  * </p>
  */
@@ -81,11 +83,28 @@ public final class ChaosPolicy {
     }
 
     private static void rejectIfDangerous(List<String> tokens, String line) {
-        if (!tokens.isEmpty() && DANGEROUS_COMMAND_NAMES.contains(tokens.get(0))) {
-            throw new IllegalArgumentException(
-                    "混沌命令 tokens[0] 命中间接执行器/解释器黑名单（" + tokens.get(0)
-                            + "），如确需登记请改用 allowDangerousCommand 显式声明: " + line);
+        if (tokens.isEmpty()) {
+            return;
         }
+        String token0 = tokens.get(0);
+        String basename = basename(token0);
+        if (DANGEROUS_COMMAND_NAMES.contains(basename)) {
+            throw new IllegalArgumentException(
+                    "混沌命令 tokens[0]（" + token0 + "，basename=" + basename
+                            + "）命中间接执行器/解释器黑名单，"
+                            + "如确需登记请改用 allowDangerousCommand 显式声明: " + line);
+        }
+    }
+
+    /**
+     * 取路径最后一段作为可执行文件名，用于把 {@code /bin/sh}、{@code ./sh}、
+     * {@code /usr/bin/env} 等路径写法归一化为裸名字再比对黑名单——否则黑名单只做
+     * 裸字符串精确匹配时，任何带路径前缀的写法（不需要任何恶意，很多人写脚本就习惯
+     * 用绝对路径）都能悄悄绕过本该强制走代码评审的 {@code allowDangerousCommand} 门槛。
+     */
+    private static String basename(String token) {
+        int slash = token.lastIndexOf('/');
+        return slash < 0 ? token : token.substring(slash + 1);
     }
 
     /**
