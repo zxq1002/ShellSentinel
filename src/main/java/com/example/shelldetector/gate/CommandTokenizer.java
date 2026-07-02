@@ -23,6 +23,8 @@ final class CommandTokenizer {
 
     /**
      * 将一行命令拆成 token（去引号、按未引用空白分词）。
+     *
+     * @throws IllegalArgumentException 引号未闭合（装配期 fail-fast，见类注释）
      */
     static List<String> tokenize(String line) {
         List<String> tokens = new ArrayList<>();
@@ -65,6 +67,12 @@ final class CommandTokenizer {
                 token.append(c);
                 started = true;
             }
+        }
+        if (inSingle || inDouble) {
+            // 未闭合引号会让后续内容（含本应作为分隔符的空白）被静默吞入同一个 token，
+            // 产出一条运维没料到的死配置/错配置——与 ScriptPattern.of 拒绝 '..' 段同一
+            // 防御哲学：宁可装配期直接报错，也不悄悄加载成行为诡异的配置
+            throw new IllegalArgumentException("配置命令行含未闭合引号: " + line);
         }
         if (started) {
             tokens.add(token.toString());
