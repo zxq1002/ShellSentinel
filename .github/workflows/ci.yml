@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# 最小权限原则：本工作流只签出代码、编译、跑测试，不写仓库任何内容，
+# 因此把默认 GITHUB_TOKEN 权限收紧到只读，避免继承过宽的组织/仓库默认权限
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
