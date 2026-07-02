@@ -22,6 +22,9 @@ import java.util.Set;
  * fail-fast 抛异常；极少数确需登记此类命令的场景，由调用方通过
  * {@code allowDangerousExact} 显式声明例外（见
  * {@link CommandGate.Builder#allowDangerousCommand(String)}）。
+ * 模板的 {@code tokens[0]} 额外要求不可含占位符——字面量比对挡不住
+ * {@code {enum:sh|bash}} 这类会被编译成正则的写法，且模板没有例外声明入口，
+ * 只能整体拒绝（见 {@link #rejectIfToken0IsPlaceholder}）。
  * </p>
  */
 public final class ChaosPolicy {
@@ -76,7 +79,9 @@ public final class ChaosPolicy {
         }
         List<CommandTemplate> tpls = new ArrayList<>();
         for (String line : templateLines) {
-            rejectIfDangerous(CommandTokenizer.tokenize(line), line);
+            List<String> tokens = CommandTokenizer.tokenize(line);
+            rejectIfDangerous(tokens, line);
+            rejectIfToken0IsPlaceholder(tokens, line);
             tpls.add(CommandTemplate.of(line));
         }
         return new ChaosPolicy(exact, tpls);
@@ -93,6 +98,26 @@ public final class ChaosPolicy {
                     "混沌命令 tokens[0]（" + token0 + "，basename=" + basename
                             + "）命中间接执行器/解释器黑名单，"
                             + "如确需登记请改用 allowDangerousCommand 显式声明: " + line);
+        }
+    }
+
+    /**
+     * 模板专用校验：{@code tokens[0]} 不可含占位符（{@code {}}）。
+     * <p>
+     * {@link #rejectIfDangerous} 只按字面量字符串比对黑名单，而模板的 {@code tokens[0]}
+     * 若是 {@code {enum:sh|bash}} 这类占位符，字面量比对天然不命中——但 {@link CommandTemplate#of}
+     * 随后会把它编译成能在运行期匹配 {@code sh}/{@code bash} 的正则，等价于绕过了黑名单。
+     * 且模板没有 {@code allowDangerousCommand} 逃生舱，纯配置文件编辑即可达成。因此这里采取
+     * 与「拒绝整个类别」一致的 fail-closed 姿态：{@code tokens[0]} 必须是已知字面量命令名，
+     * 不可以是模板变量（哪怕占位符本身不危险，如 {@code {enum:kill|pkill}}），
+     * 避免维护第二套「解析占位符取值再逐个比对黑名单」的复杂逻辑。
+     * </p>
+     */
+    private static void rejectIfToken0IsPlaceholder(List<String> tokens, String line) {
+        if (!tokens.isEmpty() && tokens.get(0).indexOf('{') >= 0) {
+            throw new IllegalArgumentException(
+                    "混沌命令模板 tokens[0] 不可含占位符（" + tokens.get(0)
+                            + "），必须是字面量命令名: " + line);
         }
     }
 
