@@ -223,6 +223,46 @@ class CommandGateChaosTest {
                 .build());
     }
 
+    @Test
+    void testCommandTemplateWithPlaceholderInTokenZeroRejectedAtConfigTime() {
+        // ultrareview 发现：tokens[0] 黑名单只比对字面量字符串，模板里 tokens[0] 可以是
+        // {enum:sh|bash} 这样的占位符——它不等于黑名单里任何裸名字符串，装配期悄悄放行，
+        // 但 CommandTemplate.of 随后把它编译成能匹配 "sh"/"bash" 的正则，运行期
+        // "sh -c reboot" 就会被当作合法混沌命令放行，规范串变成 'sh' '-c' 'reboot'。
+        // 模板没有 allowDangerousCommand 逃生舱，这是一条纯配置文件编辑就能达成的
+        // sh -c 执行通道，必须在装配期堵死。
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("{enum:sh|bash} -c {enum:reboot|halt}"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testCommandTemplateWithIntPlaceholderInTokenZeroRejectedAtConfigTime() {
+        // {int} 占位符同样不该作为命令名出现在 tokens[0]（数字永远不会命中黑名单里的裸名，
+        // 但把命令名本身模板化已经偏离"tokens[0] 应是已知字面量命令名"的设计前提）
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("{int} -c reboot"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testCommandTemplateWithNonDangerousEnumTokenZeroAlsoRejected() {
+        // tokens[0] 含占位符一律拒绝（而不是只挡危险的枚举值），是刻意的宽泛拒绝：
+        // tokens[0] 应是已知字面量命令名，不该是模板变量——即便这里的枚举值
+        // （kill/pkill）本身并不危险，也一并拒绝，运维须拆成两条模板分别登记
+        CommandGate.Builder builder = CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("{enum:kill|pkill} -{enum:STOP|CONT|TERM} {int}"));
+        assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    void testCommandTemplateWithLiteralTokenZeroStillBuildsFine() {
+        // 回归：tokens[0] 是纯字面量（无占位符）时不受影响，只有 tokens[0] 含 '{' 才拒绝
+        assertDoesNotThrow(() -> CommandGate.builder()
+                .allowCommandTemplates(Arrays.asList("kill -{enum:STOP|CONT|TERM} {int}"))
+                .build());
+    }
+
     // ---------- 配置期高危字面量兜底：未闭合引号一律拒 ----------
 
     @Test
