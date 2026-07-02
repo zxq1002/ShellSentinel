@@ -221,7 +221,7 @@ gate.command.templates=tc qdisc add dev eth0 root netem delay {int:0..10000}ms; 
 
 > 仍是 default-deny：未登记的命令一律 `COMMAND_NOT_ALLOWED`。混沌命令与只读白名单、脚本许可三者并列、互不影响。
 
-**配置期护栏**：整行虽是精确登记，但若 `tokens[0]` 命中 `sh`/`bash`/`dash`/`ash`/`env`/`sudo`/`xargs`/`eval`/`exec`/`nohup` 等间接执行器/解释器，装配时（`ChaosPolicy.of`/`GateConfig.fromProperties`/`Builder.allowExactCommands`）会直接抛 `IllegalArgumentException`——因为这类整行虽形式合规，但等价于把该解释器的执行权限交给了配置文件。极少数确需登记此类命令的场景（如混沌演练需要 `sh <固定脚本>`），须由调用方在代码里显式调用 `Builder.allowDangerousCommand(String)` 声明例外（只豁免该字面量本身，且必须是代码变更、不能只改配置文件，确保这类例外经过评审）。
+**配置期护栏**：整行虽是精确登记，但若 `tokens[0]` 命中 `sh`/`bash`/`dash`/`ash`/`env`/`sudo`/`xargs`/`eval`/`exec`/`nohup` 等间接执行器/解释器，装配时（`ChaosPolicy.of`/`GateConfig.fromProperties`/`Builder.allowExactCommands`）会直接抛 `IllegalArgumentException`——因为这类整行虽形式合规，但等价于把该解释器的执行权限交给了配置文件。比对前会先取 `tokens[0]` 的 basename（`/bin/sh`、`./sh`、`/usr/bin/env` 等带路径写法归一化为 `sh`/`env` 再比对），防止无需任何恶意、仅是路径书写习惯就绕过该护栏。极少数确需登记此类命令的场景（如混沌演练需要 `sh <固定脚本>`），须由调用方在代码里显式调用 `Builder.allowDangerousCommand(String)` 声明例外（只豁免该字面量本身，且必须是代码变更、不能只改配置文件，确保这类例外经过评审）。
 
 ## 拒绝原因（RejectReason）
 
