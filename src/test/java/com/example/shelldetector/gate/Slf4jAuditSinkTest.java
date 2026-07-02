@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,10 +22,12 @@ class Slf4jAuditSinkTest {
     private ByteArrayOutputStream captured;
 
     @BeforeEach
-    void redirectErr() {
+    void redirectErr() throws UnsupportedEncodingException {
         originalErr = System.err;
         captured = new ByteArrayOutputStream();
-        System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+        // PrintStream(OutputStream, boolean, Charset) 是 Java 10+ API；项目目标 Java 8，
+        // 用 String 编码名的重载（Java 8 起可用）
+        System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
     }
 
     @AfterEach
@@ -39,7 +42,8 @@ class Slf4jAuditSinkTest {
 
         sink.onDecision(raw, result);
 
-        String output = captured.toString(StandardCharsets.UTF_8);
+        // ByteArrayOutputStream.toString(Charset) 是 Java 10+ API；用 String(byte[], Charset) 替代
+        String output = new String(captured.toByteArray(), StandardCharsets.UTF_8);
         long lineCount = output.chars().filter(c -> c == '\n').count();
         assertEquals(1, lineCount, "净化后应仅有一行日志（末尾换行），不应被裸换行拆成多行");
         assertFalse(output.contains("FAKE LOG LINE\n"), "不应出现可被解读为独立日志行的裸换行");
@@ -52,7 +56,8 @@ class Slf4jAuditSinkTest {
 
         sink.onDecision("grep nginx", result);
 
-        String output = captured.toString(StandardCharsets.UTF_8);
+        // ByteArrayOutputStream.toString(Charset) 是 Java 10+ API；用 String(byte[], Charset) 替代
+        String output = new String(captured.toByteArray(), StandardCharsets.UTF_8);
         assertTrue(output.contains("ALLOW"));
         assertTrue(output.contains("'grep' 'nginx'"));
     }
